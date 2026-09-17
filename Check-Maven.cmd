@@ -38,6 +38,7 @@ set "SKIP_AUTH="
 set "VSCODE_SETTINGS="
 set "ASSET="
 set "PROXY="
+set "PROXY_FORCE_WIN="
 
 :parse
 if "%~1"=="" goto :find_proxy
@@ -49,30 +50,48 @@ if /i "%~1"=="--proxy"  ( set "PROXY=%~2"           & shift & shift & goto :pars
 shift & goto :parse
 
 rem ============================================================
-rem  Proxy: --proxy > HTTPS_PROXY > HTTP_PROXY > none (direct)
+rem  Proxy: --proxy > env vars > Windows system proxy > none (direct)
+rem  --proxy system  forces use of the Windows system proxy
 rem ============================================================
 :find_proxy
 echo.
 echo [*] Proxy configuration ...
+set "PROXY_SRC="
+if /i "!PROXY!"=="system" set "PROXY="&set "PROXY_FORCE_WIN=1"
+
+if defined PROXY set "PROXY_SRC=--proxy"
+
+if not defined PROXY if not defined PROXY_FORCE_WIN if defined HTTPS_PROXY set "PROXY=!HTTPS_PROXY!"&set "PROXY_SRC=HTTPS_PROXY env"
+if not defined PROXY if not defined PROXY_FORCE_WIN if defined https_proxy set "PROXY=!https_proxy!"&set "PROXY_SRC=https_proxy env"
+if not defined PROXY if not defined PROXY_FORCE_WIN if defined HTTP_PROXY set "PROXY=!HTTP_PROXY!"&set "PROXY_SRC=HTTP_PROXY env"
+if not defined PROXY if not defined PROXY_FORCE_WIN if defined http_proxy set "PROXY=!http_proxy!"&set "PROXY_SRC=http_proxy env"
+
+set "WINPROXY="
+if not defined PROXY (
+    for /f "usebackq delims=" %%P in (`powershell -NoProfile -Command "$k = Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings' -ErrorAction SilentlyContinue; if ($k.ProxyEnable -eq 1 -and $k.ProxyServer) { $raw = $k.ProxyServer; $m = @{}; $raw -split ';' | ForEach-Object { $p = $_ -split '=',2; if ($p.Count -eq 2) { $m[$p[0]] = $p[1] } }; if ($m.ContainsKey('https')) { $m['https'] } elseif ($m.ContainsKey('http')) { $m['http'] } elseif ($raw -notmatch '=') { $raw } }"`) do set "WINPROXY=%%P"
+    if defined WINPROXY set "PROXY=!WINPROXY!"&set "PROXY_SRC=Windows system proxy"
+)
+
+set "WINPAC="
+if not defined PROXY (
+    for /f "usebackq delims=" %%P in (`powershell -NoProfile -Command "$k = Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings' -ErrorAction SilentlyContinue; $k.AutoConfigURL"`) do set "WINPAC=%%P"
+)
+
 if defined PROXY (
-    echo     Using   : !PROXY!  ^(--proxy^)
-) else if defined HTTPS_PROXY (
-    set "PROXY=!HTTPS_PROXY!"
-    echo     Using   : !PROXY!  ^(HTTPS_PROXY env^)
-) else if defined https_proxy (
-    set "PROXY=!https_proxy!"
-    echo     Using   : !PROXY!  ^(https_proxy env^)
-) else if defined HTTP_PROXY (
-    set "PROXY=!HTTP_PROXY!"
-    echo     Using   : !PROXY!  ^(HTTP_PROXY env^)
-) else if defined http_proxy (
-    set "PROXY=!http_proxy!"
-    echo     Using   : !PROXY!  ^(http_proxy env^)
+    echo     Using   : !PROXY!  ^(!PROXY_SRC!^)
 ) else (
-    echo     Using   : none  ^(direct connection - no proxy^)
+    if defined WINPAC (
+        echo     Using   : none  - Windows uses a PAC script ^(!WINPAC!^)
+        echo               PAC scripts cannot be resolved automatically.
+        echo               Find the actual proxy host:port and pass it via --proxy.
+    ) else (
+        echo     Using   : none  ^(direct connection - no proxy^)
+    )
     echo     If your network requires a proxy, retry with:
     echo       Check-Maven.cmd --proxy http://proxy.example.com:8080
+    echo       Check-Maven.cmd --proxy system    ^(use the Windows system proxy^)
 )
+
 set "PROXY_OPT="
 if defined PROXY set "PROXY_OPT=-x !PROXY!"
 

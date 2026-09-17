@@ -147,7 +147,17 @@ Check-Maven.cmd --proxy http://proxy.example.com:8080
 1. `--proxy` で指定された URL
 2. `HTTPS_PROXY` / `https_proxy` 環境変数
 3. `HTTP_PROXY` / `http_proxy` 環境変数
-4. 指定がなければ直接接続（プロキシなし）
+4. Windows の system proxy 設定（インターネット オプションのプロキシ設定）
+5. 指定がなければ直接接続（プロキシなし）
+
+`--proxy system` を指定すると、環境変数を無視して Windows の system proxy 設定を強制的に使う。
+
+```cmd
+Check-Maven.cmd --proxy system
+```
+
+Windows がプロキシではなく PAC スクリプト（自動構成スクリプト）を使っている場合、
+PAC は自動解決できないため、実際のプロキシ host:port を調べて `--proxy` で指定する必要がある。
 
 実行時に必ず使用中のプロキシ（または「direct connection」）を表示する。
 `curl 7`（network unreachable）が出る場合、プロキシが必要な環境の可能性が高い。
@@ -184,7 +194,8 @@ Check-TLS.cmd --vscode C:\vscode https://repository.mulesoft.org/releases/
 Check-TLS.cmd --proxy http://proxy.example.com:8080 https://repository.mulesoft.org/releases/
 ```
 
-`--proxy` の挙動は Check-Maven.cmd と同じ（`--proxy` > `HTTPS_PROXY` > `HTTP_PROXY` > 直接接続）。
+`--proxy` の挙動は Check-Maven.cmd と同じ（`--proxy` > 環境変数 > Windows system proxy > 直接接続）。
+`--proxy system` で Windows の system proxy 設定を強制的に使うことも可能。
 
 JDK（keytool）は以下の順で自動検出:
 1. `settings.json` の `mule.homeDirectory` 配下の JDK（ACB 用）
