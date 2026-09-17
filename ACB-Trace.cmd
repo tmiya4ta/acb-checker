@@ -31,6 +31,13 @@ if not defined _LOGGING (
 
 setlocal enabledelayedexpansion
 
+set "COMMON=%~dp0_Common.cmd"
+if not exist "!COMMON!" (
+    echo [ERROR] _Common.cmd が見つかりません。
+    echo         ACB-Trace.cmd と _Common.cmd は同じフォルダに置いてください。
+    exit /b 2
+)
+
 set "OP="
 set "DO_COLLECT="
 set "DO_MASK="
@@ -50,9 +57,7 @@ shift
 goto :parse
 
 :init
-if defined VSCODE_SETTINGS if exist "!VSCODE_SETTINGS!\User\settings.json" set "VSCODE_SETTINGS=!VSCODE_SETTINGS!\User\settings.json"
-if not defined VSCODE_SETTINGS if exist "%APPDATA%\Code\User\settings.json"             set "VSCODE_SETTINGS=%APPDATA%\Code\User\settings.json"
-if not defined VSCODE_SETTINGS if exist "%APPDATA%\Code - Insiders\User\settings.json" set "VSCODE_SETTINGS=%APPDATA%\Code - Insiders\User\settings.json"
+call "!COMMON!" :find_vscode
 if not defined VSCODE_SETTINGS (
     echo [ERROR] VS Code settings.json が見つかりません。--vscode で指定してください。
     exit /b 1
@@ -163,9 +168,13 @@ if defined DO_MASK (
 
 rem ---- [2/3] ACB home ログ ----
 echo   [2/3] ACB home ログ
-set "ACB_HOME=!ACB_HOME_OVERRIDE!"
-if not defined ACB_HOME for /f "usebackq delims=" %%H in (`powershell -NoProfile -Command "try{$s=Get-Content '!VSCODE_SETTINGS!' -Raw|ConvertFrom-Json;if($s.'mule.homeDirectory'){$s.'mule.homeDirectory'}}catch{}"`) do set "ACB_HOME=%%H"
-if not defined ACB_HOME set "ACB_HOME=%USERPROFILE%\AnypointCodeBuilder"
+set "ACB_HOME=%USERPROFILE%\AnypointCodeBuilder"
+if defined VSCODE_SETTINGS if exist "!VSCODE_SETTINGS!" (
+    for /f "usebackq delims=" %%H in (`powershell -NoProfile -Command "try { $s=Get-Content '!VSCODE_SETTINGS!' -Raw | ConvertFrom-Json; if($s.'mule.homeDirectory'){$s.'mule.homeDirectory'} } catch {}"`) do (
+        if not "%%H"=="" set "ACB_HOME=%%H"
+    )
+)
+if defined ACB_HOME_OVERRIDE set "ACB_HOME=!ACB_HOME_OVERRIDE!"
 echo          Home: !ACB_HOME!
 
 if exist "!ACB_HOME!\logs\" (
