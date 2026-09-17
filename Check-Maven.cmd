@@ -39,14 +39,16 @@ set "VSCODE_SETTINGS="
 set "ASSET="
 set "PROXY="
 set "PROXY_FORCE_WIN="
+set "SHOWPROXY="
 
 :parse
 if "%~1"=="" goto :find_proxy
-if /i "%~1"=="--token"  ( set "TOKEN=%~2"           & shift & shift & goto :parse )
-if /i "%~1"=="--gav"    ( set "GAV=%~2"             & shift & shift & goto :parse )
-if /i "%~1"=="--vscode" ( set "VSCODE_SETTINGS=%~2" & shift & shift & goto :parse )
-if /i "%~1"=="--asset"  ( set "ASSET=%~2"           & shift & shift & goto :parse )
-if /i "%~1"=="--proxy"  ( set "PROXY=%~2"           & shift & shift & goto :parse )
+if /i "%~1"=="--token"       ( set "TOKEN=%~2"           & shift & shift & goto :parse )
+if /i "%~1"=="--gav"         ( set "GAV=%~2"             & shift & shift & goto :parse )
+if /i "%~1"=="--vscode"      ( set "VSCODE_SETTINGS=%~2" & shift & shift & goto :parse )
+if /i "%~1"=="--asset"       ( set "ASSET=%~2"           & shift & shift & goto :parse )
+if /i "%~1"=="--proxy"       ( set "PROXY=%~2"           & shift & shift & goto :parse )
+if /i "%~1"=="--show-proxy"  ( set "SHOWPROXY=1"         & shift & goto :parse )
 shift & goto :parse
 
 rem ============================================================
@@ -54,6 +56,21 @@ rem  Proxy: --proxy > env vars > Windows system proxy > none (direct)
 rem  --proxy system  forces use of the Windows system proxy
 rem ============================================================
 :find_proxy
+if defined SHOWPROXY (
+    echo.
+    echo ============================================================
+    echo  Windows System Proxy Settings
+    echo ============================================================
+    powershell -NoProfile -Command "$k = Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings' -ErrorAction SilentlyContinue; Write-Host ('  ProxyEnable   : ' + $(if($k.ProxyEnable -eq 1){'1 (enabled)'}else{'0 (disabled)'})); if ($k.ProxyServer) { Write-Host ('  ProxyServer   : ' + $k.ProxyServer); if ($k.ProxyServer -match '=') { $k.ProxyServer -split ';' | ForEach-Object { $p = $_ -split '=',2; if ($p.Count -eq 2) { Write-Host ('    ' + $p[0] + ' : ' + $p[1]) } } } } else { Write-Host '  ProxyServer   : (not set)' }; if ($k.AutoConfigURL) { Write-Host ('  AutoConfigURL : ' + $k.AutoConfigURL + '  (PAC script - not auto-resolved by this tool)') } else { Write-Host '  AutoConfigURL : (not set)' }"
+    echo.
+    echo   Environment variables:
+    if defined HTTPS_PROXY (echo     HTTPS_PROXY : !HTTPS_PROXY!) else (echo     HTTPS_PROXY : ^(not set^))
+    if defined https_proxy (echo     https_proxy : !https_proxy!) else (echo     https_proxy : ^(not set^))
+    if defined HTTP_PROXY  (echo     HTTP_PROXY  : !HTTP_PROXY!) else (echo     HTTP_PROXY  : ^(not set^))
+    if defined http_proxy  (echo     http_proxy  : !http_proxy!) else (echo     http_proxy  : ^(not set^))
+    echo ============================================================
+    exit /b 0
+)
 echo.
 echo [*] Proxy configuration ...
 set "PROXY_SRC="

@@ -133,6 +133,7 @@ Check-Maven.cmd --gav <G:A:V>             別の Maven アーティファクト�
 Check-Maven.cmd --token <TOKEN>           トークンを手動指定
 Check-Maven.cmd --vscode <PATH>           VS Code settings.json のパスを指定
 Check-Maven.cmd --proxy <URL>             プロキシを手動指定
+Check-Maven.cmd --show-proxy              Windows のシステムプロキシ設定を表示して終了
 ```
 
 #### --proxy オプション（プロキシ経由での接続）
@@ -158,6 +159,35 @@ Check-Maven.cmd --proxy system
 
 Windows がプロキシではなく PAC スクリプト（自動構成スクリプト）を使っている場合、
 PAC は自動解決できないため、実際のプロキシ host:port を調べて `--proxy` で指定する必要がある。
+
+#### --show-proxy オプション（Windows のシステムプロキシ設定を表示）
+
+実際に接続を試す前に、Windows に何が設定されているかだけを確認したい場合に使用。
+レジストリの `ProxyEnable` / `ProxyServer` / `AutoConfigURL` と、
+`HTTPS_PROXY` 系の環境変数を表示して終了する（接続は行わない）。
+
+```cmd
+Check-Maven.cmd --show-proxy
+```
+
+出力例:
+```
+============================================================
+ Windows System Proxy Settings
+============================================================
+  ProxyEnable   : 1 (enabled)
+  ProxyServer   : http=proxy.example.com:8080;https=proxy.example.com:8443
+    http  : proxy.example.com:8080
+    https : proxy.example.com:8443
+  AutoConfigURL : (not set)
+
+  Environment variables:
+    HTTPS_PROXY : (not set)
+    https_proxy : (not set)
+    HTTP_PROXY  : (not set)
+    http_proxy  : (not set)
+============================================================
+```
 
 実行時に必ず使用中のプロキシ（または「direct connection」）を表示する。
 `curl 7`（network unreachable）が出る場合、プロキシが必要な環境の可能性が高い。
@@ -203,6 +233,7 @@ URL を指定しない場合、以下をデフォルトでチェックする:
 
 `--proxy` の挙動は Check-Maven.cmd と同じ（`--proxy` > 環境変数 > 直接接続）。
 `--proxy system` を指定したときだけ Windows の system proxy 設定を検索して使う。
+`--show-proxy` で Windows のシステムプロキシ設定を表示して終了することもできる（Check-Maven.cmd と同じ）。
 
 JDK（keytool）は以下の順で自動検出:
 1. `settings.json` の `mule.homeDirectory` 配下の JDK（ACB 用）
