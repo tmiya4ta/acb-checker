@@ -132,7 +132,25 @@ Check-Maven.cmd --asset <assetId>         API spec ダウンロードもテス�
 Check-Maven.cmd --gav <G:A:V>             別の Maven アーティファクトを確認
 Check-Maven.cmd --token <TOKEN>           トークンを手動指定
 Check-Maven.cmd --vscode <PATH>           VS Code settings.json のパスを指定
+Check-Maven.cmd --proxy <URL>             プロキシを手動指定
 ```
+
+#### --proxy オプション（プロキシ経由での接続）
+
+社内プロキシ経由でないと外部に接続できない環境で使用。
+
+```cmd
+Check-Maven.cmd --proxy http://proxy.example.com:8080
+```
+
+プロキシは以下の順で決定される:
+1. `--proxy` で指定された URL
+2. `HTTPS_PROXY` / `https_proxy` 環境変数
+3. `HTTP_PROXY` / `http_proxy` 環境変数
+4. 指定がなければ直接接続（プロキシなし）
+
+実行時に必ず使用中のプロキシ（または「direct connection」）を表示する。
+`curl 7`（network unreachable）が出る場合、プロキシが必要な環境の可能性が高い。
 
 #### --asset オプション（テスト 5: API spec ダウンロード）
 
@@ -163,7 +181,10 @@ Check-Maven.cmd --asset my-api-spec
 ```cmd
 Check-TLS.cmd https://repository.mulesoft.org/releases/
 Check-TLS.cmd --vscode C:\vscode https://repository.mulesoft.org/releases/
+Check-TLS.cmd --proxy http://proxy.example.com:8080 https://repository.mulesoft.org/releases/
 ```
+
+`--proxy` の挙動は Check-Maven.cmd と同じ（`--proxy` > `HTTPS_PROXY` > `HTTP_PROXY` > 直接接続）。
 
 JDK（keytool）は以下の順で自動検出:
 1. `settings.json` の `mule.homeDirectory` 配下の JDK（ACB 用）

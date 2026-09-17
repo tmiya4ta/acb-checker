@@ -37,14 +37,44 @@ set "GAV="
 set "SKIP_AUTH="
 set "VSCODE_SETTINGS="
 set "ASSET="
+set "PROXY="
 
 :parse
-if "%~1"=="" goto :find_token
+if "%~1"=="" goto :find_proxy
 if /i "%~1"=="--token"  ( set "TOKEN=%~2"           & shift & shift & goto :parse )
 if /i "%~1"=="--gav"    ( set "GAV=%~2"             & shift & shift & goto :parse )
 if /i "%~1"=="--vscode" ( set "VSCODE_SETTINGS=%~2" & shift & shift & goto :parse )
 if /i "%~1"=="--asset"  ( set "ASSET=%~2"           & shift & shift & goto :parse )
+if /i "%~1"=="--proxy"  ( set "PROXY=%~2"           & shift & shift & goto :parse )
 shift & goto :parse
+
+rem ============================================================
+rem  Proxy: --proxy > HTTPS_PROXY > HTTP_PROXY > none (direct)
+rem ============================================================
+:find_proxy
+echo.
+echo [*] Proxy configuration ...
+if defined PROXY (
+    echo     Using   : !PROXY!  ^(--proxy^)
+) else if defined HTTPS_PROXY (
+    set "PROXY=!HTTPS_PROXY!"
+    echo     Using   : !PROXY!  ^(HTTPS_PROXY env^)
+) else if defined https_proxy (
+    set "PROXY=!https_proxy!"
+    echo     Using   : !PROXY!  ^(https_proxy env^)
+) else if defined HTTP_PROXY (
+    set "PROXY=!HTTP_PROXY!"
+    echo     Using   : !PROXY!  ^(HTTP_PROXY env^)
+) else if defined http_proxy (
+    set "PROXY=!http_proxy!"
+    echo     Using   : !PROXY!  ^(http_proxy env^)
+) else (
+    echo     Using   : none  ^(direct connection - no proxy^)
+    echo     If your network requires a proxy, retry with:
+    echo       Check-Maven.cmd --proxy http://proxy.example.com:8080
+)
+set "PROXY_OPT="
+if defined PROXY set "PROXY_OPT=-x !PROXY!"
 
 rem ============================================================
 rem  Auto-detect token from acb_settings.xml
@@ -216,7 +246,7 @@ rem  :run_curl <extra args...> -- sets CURL_RC / ST / SZ / CT
 rem ============================================================
 :run_curl
 set "ST=" & set "SZ=" & set "CT="
-curl.exe -sS -w "%%{http_code} %%{size_download} %%{content_type}\n" --noproxy "*" --connect-timeout 10 --max-time 30 %* > "%WOUT%" 2>&1
+curl.exe -sS -w "%%{http_code} %%{size_download} %%{content_type}\n" !PROXY_OPT! --connect-timeout 10 --max-time 30 %* > "%WOUT%" 2>&1
 set CURL_RC=!errorlevel!
 for /f "usebackq tokens=1,2,3" %%a in ("%WOUT%") do ( set "ST=%%a" & set "SZ=%%b" & set "CT=%%c" )
 goto :eof
@@ -354,7 +384,7 @@ if !CURL_RC!==0 (
 if !CURL_RC!==60 (
     echo   Connectivity : NG  ^(curl 60 - certificate not trusted^)
     echo   Chain as presented by the server:
-    curl.exe -sk -o nul -w "%%{certs}" --max-time 20 "!URL!" > "%WOUT%" 2>nul
+    curl.exe -sk -o nul -w "%%{certs}" !PROXY_OPT! --max-time 20 "!URL!" > "%WOUT%" 2>nul
     for /f "usebackq tokens=1,* delims=:" %%a in (`findstr /b /c:"Subject:" /c:"Issuer:" "%WOUT%"`) do (
         echo      %%a : %%b
     )
@@ -627,7 +657,7 @@ rem Get root org ID from /accounts/api/me
 set "EXCHG="
 echo.
 echo   Fetching organization ID from Anypoint Platform...
-for /f "usebackq delims=" %%O in (`curl.exe -sS -H "Authorization: Bearer !TOKEN!" "https://anypoint.mulesoft.com/accounts/api/me" 2^>nul ^| powershell -NoProfile -Command "$j=[Console]::In.ReadToEnd() | ConvertFrom-Json; $j.user.organizationId"`) do set "EXCHG=%%O"
+for /f "usebackq delims=" %%O in (`curl.exe -sS !PROXY_OPT! -H "Authorization: Bearer !TOKEN!" "https://anypoint.mulesoft.com/accounts/api/me" 2^>nul ^| powershell -NoProfile -Command "$j=[Console]::In.ReadToEnd() | ConvertFrom-Json; $j.user.organizationId"`) do set "EXCHG=%%O"
 if not defined EXCHG (
     echo   [ERROR] Could not get organization ID. Token may be invalid.
     goto :eof
@@ -646,9 +676,9 @@ set "EXCHURL=https://anypoint.mulesoft.com/exchange/api/v2/assets/!EXCHG!/!EXCHA
 set "EXCHF=%TEMP%\mv_exch.json"
 echo   [1] GET asset info: !EXCHURL!
 if defined SKIP_AUTH (
-    curl.exe -sS --noproxy "*" --connect-timeout 10 --max-time 30 "!EXCHURL!" -o "!EXCHF!"
+    curl.exe -sS !PROXY_OPT! --connect-timeout 10 --max-time 30 "!EXCHURL!" -o "!EXCHF!"
 ) else (
-    curl.exe -sS --noproxy "*" --connect-timeout 10 --max-time 30 -H "Authorization: Bearer !TOKEN!" "!EXCHURL!" -o "!EXCHF!"
+    curl.exe -sS !PROXY_OPT! --connect-timeout 10 --max-time 30 -H "Authorization: Bearer !TOKEN!" "!EXCHURL!" -o "!EXCHF!"
 )
 set CURL_RC=!errorlevel!
 if "!CURL_RC!" neq "0" (

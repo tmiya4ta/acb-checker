@@ -27,16 +27,45 @@ setlocal enabledelayedexpansion
 
 set "VSCODE_SETTINGS="
 set "URLS="
+set "PROXY="
 
 :parse
 if "%~1"=="" goto :init
 if /i "%~1"=="--vscode" ( set "VSCODE_SETTINGS=%~2" & shift & shift & goto :parse )
+if /i "%~1"=="--proxy"  ( set "PROXY=%~2"           & shift & shift & goto :parse )
 set "URLS=!URLS! %~1"
 shift
 goto :parse
 
 :init
 set "PUBCA=/c:"DigiCert" /c:"GlobalSign" /c:"Let's Encrypt" /c:"Sectigo" /c:"Comodo" /c:"Entrust" /c:"VeriSign" /c:"USERTrust" /c:"ISRG" /c:"Amazon" /c:"Starfield" /c:"Baltimore" /c:"Cybertrust" /c:"Microsoft" /c:"Apple" /c:"Thawte" /c:"GeoTrust" /c:"QuoVadis" /c:"SwissSign" /c:"T-Systems" /c:"D-Trust" /c:"Certigna" /c:"SECOM" /c:"Symantec" /c:"Google Trust""
+
+rem ---- Proxy: --proxy > HTTPS_PROXY > HTTP_PROXY > none (direct) ----
+echo.
+echo ============================================================
+echo  Proxy configuration
+echo ============================================================
+if defined PROXY (
+    echo   Using : !PROXY!  ^(--proxy^)
+) else if defined HTTPS_PROXY (
+    set "PROXY=!HTTPS_PROXY!"
+    echo   Using : !PROXY!  ^(HTTPS_PROXY env^)
+) else if defined https_proxy (
+    set "PROXY=!https_proxy!"
+    echo   Using : !PROXY!  ^(https_proxy env^)
+) else if defined HTTP_PROXY (
+    set "PROXY=!HTTP_PROXY!"
+    echo   Using : !PROXY!  ^(HTTP_PROXY env^)
+) else if defined http_proxy (
+    set "PROXY=!http_proxy!"
+    echo   Using : !PROXY!  ^(http_proxy env^)
+) else (
+    echo   Using : none  ^(direct connection - no proxy^)
+    echo   If your network requires a proxy, retry with:
+    echo     Check-TLS.cmd --proxy http://proxy.example.com:8080 https://...
+)
+set "PROXY_OPT="
+if defined PROXY set "PROXY_OPT=-x !PROXY!"
 
 rem ---- Find VS Code settings.json ----
 rem If --vscode points to a directory, append User\settings.json
@@ -113,7 +142,7 @@ echo   %URL%
 echo ============================================================
 
 rem ---- 1) Certificate chain (-k to bypass validation and get chain) ----
-curl.exe -sS -k -o nul -w "%%{certs}" "%URL%" > "%TEMP%\tls_chain.txt" 2>"%TEMP%\tls_chain_err.txt"
+curl.exe -sS -k -o nul -w "%%{certs}" !PROXY_OPT! "%URL%" > "%TEMP%\tls_chain.txt" 2>"%TEMP%\tls_chain_err.txt"
 set "CHAIN_RC=!errorlevel!"
 if not exist "%TEMP%\tls_chain.txt" goto :nochain
 for %%s in ("%TEMP%\tls_chain.txt") do if %%~zs==0 goto :nochain
@@ -159,7 +188,7 @@ if exist "%TEMP%\tls_chain_err.txt" for %%s in ("%TEMP%\tls_chain_err.txt") do i
 
 rem ---- 2) Windows certificate store ----
 :winstore
-curl.exe -sS -o nul "%URL%" 2>"%TEMP%\tls_e1.txt"
+curl.exe -sS -o nul !PROXY_OPT! "%URL%" 2>"%TEMP%\tls_e1.txt"
 set RC=!errorlevel!
 if !RC!==0    (echo   Windows cert store : OK) else (
 if !RC!==60   (echo   Windows cert store : NG - certificate not trusted) else (
@@ -171,7 +200,7 @@ if not defined CACERTS_PEM (
     echo   Java cacerts         : SKIP - keytool not found
     goto :eof
 )
-curl.exe -sS -o nul --cacert "!CACERTS_PEM!" "%URL%" 2>"%TEMP%\tls_e2.txt"
+curl.exe -sS -o nul --cacert "!CACERTS_PEM!" !PROXY_OPT! "%URL%" 2>"%TEMP%\tls_e2.txt"
 set RC=!errorlevel!
 if !RC!==0  (echo   Java cacerts         : OK) else (
 if !RC!==60 (echo   Java cacerts         : NG - CA not in cacerts ^(PKIX path building failed^)) else (
