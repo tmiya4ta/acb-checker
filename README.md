@@ -2,6 +2,38 @@
 
 Anypoint Code Builder (ACB) の Maven リポジトリ接続問題と、社内プロキシ（MITM）による TLS 証明書問題を診断するツール。
 
+## ファイル構成
+
+| ファイル | 役割 |
+|---|---|
+| `Check-Maven.cmd` | Maven リポジトリ診断 |
+| `Check-TLS.cmd` | TLS / MITM 診断 |
+| `_Common.cmd` | 上記 2 つが共有するルーチン（プロキシ解決・設定探索など） |
+| `Verify-Check-TLS.cmd` | `Check-TLS.cmd` の動作確認 |
+
+**4 ファイルは同じフォルダにまとめてコピーすること。**
+`_Common.cmd` が隣にないと、`Check-Maven.cmd` / `Check-TLS.cmd` はエラー終了する（終了コード 2）。
+
+## 終了コード
+
+| コード | 意味 |
+|---|---|
+| `0` | NG なし |
+| `1` | NG が 1 件以上（証明書未信頼、ダウンロード失敗、キャッシュ破損など） |
+| `2` | 引数エラー、または `_Common.cmd` が見つからない |
+
+バッチや CI から呼ぶ場合はこの値で判定できる。
+実行ログは常にカレントディレクトリの `logs\` に保存される。
+
+## ヘルプ
+
+```cmd
+Check-Maven.cmd --help
+Check-TLS.cmd --help
+```
+
+未知のオプションを渡した場合は黙って無視せず、エラーにして使い方を表示する。
+
 ---
 
 ## Check-Maven.cmd
@@ -96,10 +128,10 @@ ACB が起動していない場合は Exchange 側のテストをスキップし
  5. Exchange API file download test
 ============================================================
   Fetching organization ID from Anypoint Platform...
-  Organization: fbc56842-5b3f-4a52-8d23-ab142791bb47
+  Organization: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
 
   Testing Exchange API file download...
-  Asset: fbc56842-5b3f-4a52-8d23-ab142791bb47/my-api-spec
+  Asset: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx/my-api-spec
 
   [1] GET asset info: https://anypoint.mulesoft.com/exchange/api/v2/assets/...
   Version: 1.0.1
@@ -130,11 +162,21 @@ ACB が起動していない場合は Exchange 側のテストをスキップし
 Check-Maven.cmd                           基本テスト（1〜4）のみ
 Check-Maven.cmd --asset <assetId>         API spec ダウンロードもテスト（テスト 5）
 Check-Maven.cmd --gav <G:A:V>             別の Maven アーティファクトを確認
-Check-Maven.cmd --token <TOKEN>           トークンを手動指定
+Check-Maven.cmd --token <TOKEN>           トークンを手動指定（下記の注意を参照）
 Check-Maven.cmd --vscode <PATH>           VS Code settings.json のパスを指定
 Check-Maven.cmd --proxy <URL>             プロキシを手動指定
 Check-Maven.cmd --show-proxy              Windows のシステムプロキシ設定を表示して終了
+Check-Maven.cmd --help                    使い方を表示して終了
 ```
+
+> **`--token` の注意**
+> コマンドラインに渡したトークンはプロセス一覧（タスクマネージャー等）と
+> コマンド履歴（`doskey /history`）に残る。
+> ACB を起動して自動検出させるほうが安全。
+
+> **プロキシ資格情報の表示について**
+> `http://user:pass@proxy:8080` のような形式を渡しても、画面と `logs\` には
+> `http://***@proxy:8080` とマスクして出力される。
 
 #### --proxy オプション（プロキシ経由での接続）
 
@@ -151,7 +193,11 @@ Check-Maven.cmd --proxy http://proxy.example.com:8080
 4. 指定がなければ直接接続（プロキシなし）
 
 Windows の system proxy 設定（インターネット オプションのプロキシ設定）は自動的には使われない。
-`--proxy system` を明示的に指定したときだけ、レジストリを検索してその値を使う。
+`--proxy system` を明示的に指定したときだけ、以下の順にレジストリを検索してその値を使う:
+
+1. `HKCU\...\Internet Settings`（ユーザー設定）
+2. `HKLM\...\Internet Settings`（マシン設定）
+3. `HKLM\Software\Policies\...\Internet Settings`（グループポリシー配布）
 
 ```cmd
 Check-Maven.cmd --proxy system
@@ -163,7 +209,8 @@ PAC は自動解決できないため、実際のプロキシ host:port を調�
 #### --show-proxy オプション（Windows のシステムプロキシ設定を表示）
 
 実際に接続を試す前に、Windows に何が設定されているかだけを確認したい場合に使用。
-レジストリの `ProxyEnable` / `ProxyServer` / `AutoConfigURL` と、
+HKCU / HKLM / グループポリシーの `ProxyEnable` / `ProxyServer` / `ProxyOverride` /
+`AutoConfigURL`、`netsh winhttp show proxy`（サービスや一部 JVM が使う別系統の設定）、
 `HTTPS_PROXY` 系の環境変数を表示して終了する（接続は行わない）。
 
 ```cmd
@@ -173,13 +220,19 @@ Check-Maven.cmd --show-proxy
 出力例:
 ```
 ============================================================
- Windows System Proxy Settings
+ Windows proxy settings
 ============================================================
-  ProxyEnable   : 1 (enabled)
-  ProxyServer   : http=proxy.example.com:8080;https=proxy.example.com:8443
-    http  : proxy.example.com:8080
-    https : proxy.example.com:8443
-  AutoConfigURL : (not set)
+  HKCU        : ProxyEnable   : 1 (enabled)
+                ProxyServer   : http=proxy.example.com:8080;https=proxy.example.com:8443
+                ProxyOverride : <local>;*.example.com
+                AutoConfigURL : (not set)
+  HKLM        : (key does not exist)
+  HKLM policy : (key does not exist)
+
+  WinHTTP (used by services and some JVMs; independent of the above):
+Current WinHTTP proxy settings:
+
+    Direct access (no proxy server).
 
   Environment variables:
     HTTPS_PROXY : (not set)
@@ -189,8 +242,12 @@ Check-Maven.cmd --show-proxy
 ============================================================
 ```
 
-実行時に必ず使用中のプロキシ（または「direct connection」）を表示する。
+実行時には必ず使用中のプロキシ（または「direct connection」）を表示する。
 `curl 7`（network unreachable）が出る場合、プロキシが必要な環境の可能性が高い。
+
+**`ProxyOverride`（バイパスリスト）は適用されない。**
+curl は `-x` で指定されたプロキシに全 URL を送るため、ブラウザでは直結される
+ホストもプロキシ経由になる。バイパスリストが設定されている場合は警告として表示する。
 
 #### --asset オプション（テスト 5: API spec ダウンロード）
 
@@ -207,8 +264,8 @@ Check-Maven.cmd --asset my-api-spec
 
 #### VS Code settings.json の自動検出
 
-以下の順で自動検出:
-1. `--vscode` で指定されたパス
+以下の順で自動検出（`_Common.cmd` の `:find_vscode`、2 スクリプト共通）:
+1. `--vscode` で指定されたパス（フォルダを渡した場合は `User\settings.json` を補う）
 2. `%APPDATA%\Code\User\settings.json`（通常版）
 3. `%APPDATA%\Code - Insiders\User\settings.json`（Insiders 版）
 
@@ -223,6 +280,7 @@ Check-TLS.cmd
 Check-TLS.cmd https://repository.mulesoft.org/releases/
 Check-TLS.cmd --vscode C:\vscode https://repository.mulesoft.org/releases/
 Check-TLS.cmd --proxy http://proxy.example.com:8080 https://repository.mulesoft.org/releases/
+Check-TLS.cmd --help
 ```
 
 URL を指定しない場合、以下をデフォルトでチェックする:
@@ -289,6 +347,9 @@ Verify-Check-TLS.cmd
 
 - badssl.com = Trusted、他2つ = Unknown なら **Check-TLS.cmd は正常**
 - もし全部 Trusted になったら Check-TLS.cmd にバグあり
+- **3つとも Unknown になった場合も Check-TLS.cmd は正常**で、
+  あなたのネットワークが MITM プロキシ配下にあることを意味する
+  （badssl.com の正規証明書までプロキシの CA に差し替えられている）
 
 ---
 

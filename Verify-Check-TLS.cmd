@@ -19,6 +19,10 @@ echo  これは「Check-TLS が未知 CA を検出できる」ことの確認で
 echo  (ネガティブチェック: 検出機能が動いている証拠)
 echo.
 echo  もし全部 Trusted になったら Check-TLS.cmd にバグがあります。
+echo.
+echo  逆に 3つとも Unknown になった場合も Check-TLS.cmd は正常です。
+echo  badssl.com の正規証明書まで別の CA に差し替えられている、
+echo  つまりあなたのネットワークが MITM プロキシ配下だということです。
 echo ============================================================
 echo.
 pause
@@ -31,7 +35,8 @@ echo  結果の見方
 echo ============================================================
 echo.
 echo  badssl.com が Trusted / 他2つが Unknown なら正常です。
-echo  Check-TLS.cmd は正しく動作しています。
+echo  3つとも Unknown なら、ツールは正常でネットワークが MITM 配下です。
+echo  全部 Trusted なら Check-TLS.cmd 側の問題です。
 echo.
 echo  [あなたのネットワークでプロキシ MITM があるかの確認方法]
 echo  Check-TLS.cmd https://google.com を実行して:

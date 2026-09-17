@@ -4,33 +4,61 @@ rem  Check-Maven.cmd
 rem
 rem  Diagnose Maven repository access from this machine.
 rem
-rem  Usage: Check-Maven.cmd [--token <TOKEN>] [--gav <G:A:V[:classifier]>] [--vscode <PATH>]
+rem  Usage: Check-Maven.cmd [--token <TOKEN>] [--gav <G:A:V[:classifier]>]
+rem                         [--asset <assetId>] [--vscode <PATH>]
+rem                         [--proxy <URL|system>] [--show-proxy] [--help]
 rem
 rem  Tests:
+rem    0. Local cache        (corrupt POM/JAR left in %USERPROFILE%\.m2)
 rem    1. TLS connectivity   (real verification; -k only to show the chain on failure)
 rem    2. Auth               (Bearer token from acb_settings.xml, Exchange only)
-rem    3. POM HEAD           (mulesoft-releases is public and always tested)
+rem    3. POM download       (mulesoft-releases is public and always tested)
 rem    4. JAR download       (size / ZIP magic / entry list - catches empty or HTML bodies)
+rem    5. Exchange API spec  (only with --asset)
 rem
 rem  Token is auto-detected from a running Anypoint Code Builder
 rem  (acb_settings.xml). Without it, only the Exchange tests are skipped.
+rem
+rem  Requirements:
+rem    _Common.cmd - shared routines, must sit next to this script
+rem
+rem  Exit code: 0 = nothing wrong found
+rem             1 = at least one NG
+rem             2 = usage error or missing _Common.cmd
 rem ============================================================
 
-rem --- Logging wrapper: capture output to logs folder (in current directory) ---
-if not defined _LOGGING (
-    setlocal enabledelayedexpansion
-    set "LOGDIR=%CD%\logs"
-    if not exist "!LOGDIR!" mkdir "!LOGDIR!"
-    for /f "tokens=1-3 delims=/ " %%a in ('date /t') do set "LOGDATE=%%c%%a%%b"
-    for /f "tokens=1-2 delims=: " %%a in ('time /t') do set "LOGTIME=%%a%%b"
-    set "LOGFILE=!LOGDIR!\Check-Maven_!LOGDATE!_!LOGTIME!.log"
-    set "_LOGGING=1"
-    cmd /c ""%~f0" %*" 2>&1 | powershell -NoProfile -Command "$input | Tee-Object -FilePath '!LOGFILE!'; Write-Host ''; Write-Host '[Log saved to !LOGFILE!]'"
-    endlocal
-    exit /b
-)
+if defined _LOGGING goto :main
 
+rem --- Logging wrapper: capture output to logs folder (in current directory) ---
 setlocal enabledelayedexpansion
+set "LOGDIR=%CD%\logs"
+if not exist "!LOGDIR!" mkdir "!LOGDIR!"
+for /f "tokens=1-3 delims=/ " %%a in ('date /t') do set "LOGDATE=%%c%%a%%b"
+for /f "tokens=1-2 delims=: " %%a in ('time /t') do set "LOGTIME=%%a%%b"
+set "LOGFILE=!LOGDIR!\Check-Maven_!LOGDATE!_!LOGTIME!.log"
+rem A pipeline reports the exit code of its LAST stage, so the real run's
+rem code would be lost. The child writes it to RCFILE instead - environment
+rem variables are inherited by the child, delayed expansion is not.
+set "RCFILE=%TEMP%\acb_rc_%RANDOM%.tmp"
+del /q "!RCFILE!" 2>nul
+set "_LOGGING=1"
+cmd /c ""%~f0" %*" 2>&1 | powershell -NoProfile -Command "$input | Tee-Object -FilePath '!LOGFILE!'; Write-Host ''; Write-Host '[Log saved to !LOGFILE!]'"
+set "RC=1"
+if exist "!RCFILE!" set /p RC=<"!RCFILE!"
+del /q "!RCFILE!" 2>nul
+for /f "delims=" %%r in ("!RC!") do endlocal & exit /b %%r
+
+:main
+setlocal enabledelayedexpansion
+
+set "COMMON=%~dp0_Common.cmd"
+if not exist "!COMMON!" (
+    echo [ERROR] _Common.cmd not found next to this script.
+    echo         Check-Maven.cmd, Check-TLS.cmd and _Common.cmd must be
+    echo         copied together into the same folder.
+    set "RC=2"
+    goto :finish
+)
 
 set "TOKEN="
 set "GAV="
@@ -38,8 +66,8 @@ set "SKIP_AUTH="
 set "VSCODE_SETTINGS="
 set "ASSET="
 set "PROXY="
-set "PROXY_FORCE_WIN="
 set "SHOWPROXY="
+set /a NGCOUNT=0
 
 :parse
 if "%~1"=="" goto :find_proxy
@@ -49,83 +77,48 @@ if /i "%~1"=="--vscode"      ( set "VSCODE_SETTINGS=%~2" & shift & shift & goto 
 if /i "%~1"=="--asset"       ( set "ASSET=%~2"           & shift & shift & goto :parse )
 if /i "%~1"=="--proxy"       ( set "PROXY=%~2"           & shift & shift & goto :parse )
 if /i "%~1"=="--show-proxy"  ( set "SHOWPROXY=1"         & shift & goto :parse )
-shift & goto :parse
+if /i "%~1"=="--help"        goto :usage
+if /i "%~1"=="-h"            goto :usage
+if /i "%~1"=="/?"            goto :usage
+rem Unknown arguments used to be dropped silently, which turned a typo
+rem such as --vscodde into "option ignored, tests run anyway".
+echo [ERROR] Unknown argument: %~1
+goto :usage_err
+
+:usage_err
+set "RC=2"
+echo.
+goto :usage_body
+:usage
+set "RC=0"
+:usage_body
+echo Usage: Check-Maven.cmd [options]
+echo.
+echo   --token ^<TOKEN^>     use this token instead of reading acb_settings.xml
+echo                       ^(it is visible in the process list and in the
+echo                        command history - prefer letting ACB provide it^)
+echo   --gav ^<G:A:V[:classifier]^>   artifact to test
+echo   --asset ^<assetId^>   also run test 5 ^(Exchange API spec download^)
+echo   --vscode ^<PATH^>     VS Code settings.json ^(or its parent folder^)
+echo   --proxy ^<URL^>       use this proxy ^(e.g. http://proxy.example.com:8080^)
+echo   --proxy system      look up and use the Windows system proxy
+echo   --show-proxy        show the Windows proxy settings and exit
+echo   --help              show this help
+echo.
+echo   Exit code: 0 = OK, 1 = something is NG, 2 = usage error.
+goto :finish
 
 rem ============================================================
-rem  Proxy: --proxy > env vars > Windows system proxy > none (direct)
-rem  --proxy system  forces use of the Windows system proxy
+rem  Proxy and VS Code settings live in _Common.cmd, so Check-TLS.cmd
+rem  and Check-Maven.cmd cannot drift apart.
 rem ============================================================
 :find_proxy
 if defined SHOWPROXY (
-    echo.
-    echo ============================================================
-    echo  Windows System Proxy Settings
-    echo ============================================================
-    powershell -NoProfile -Command "$k = Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings' -ErrorAction SilentlyContinue; Write-Host ('  ProxyEnable   : ' + $(if($k.ProxyEnable -eq 1){'1 (enabled)'}else{'0 (disabled)'})); if ($k.ProxyServer) { Write-Host ('  ProxyServer   : ' + $k.ProxyServer); if ($k.ProxyServer -match '=') { $k.ProxyServer -split ';' | ForEach-Object { $p = $_ -split '=',2; if ($p.Count -eq 2) { Write-Host ('    ' + $p[0] + ' : ' + $p[1]) } } } } else { Write-Host '  ProxyServer   : (not set)' }; if ($k.AutoConfigURL) { Write-Host ('  AutoConfigURL : ' + $k.AutoConfigURL + '  (PAC script - not auto-resolved by this tool)') } else { Write-Host '  AutoConfigURL : (not set)' }"
-    echo.
-    echo   Environment variables:
-    if defined HTTPS_PROXY (
-        call :mask_proxy "!HTTPS_PROXY!"
-        echo     HTTPS_PROXY : !PROXY_DISP!
-    ) else (echo     HTTPS_PROXY : ^(not set^))
-    if defined https_proxy (
-        call :mask_proxy "!https_proxy!"
-        echo     https_proxy : !PROXY_DISP!
-    ) else (echo     https_proxy : ^(not set^))
-    if defined HTTP_PROXY (
-        call :mask_proxy "!HTTP_PROXY!"
-        echo     HTTP_PROXY  : !PROXY_DISP!
-    ) else (echo     HTTP_PROXY  : ^(not set^))
-    if defined http_proxy (
-        call :mask_proxy "!http_proxy!"
-        echo     http_proxy  : !PROXY_DISP!
-    ) else (echo     http_proxy  : ^(not set^))
-    echo ============================================================
-    exit /b 0
+    call "!COMMON!" :show_proxy
+    set "RC=0"
+    goto :finish
 )
-echo.
-echo [*] Proxy configuration ...
-set "PROXY_SRC="
-if /i "!PROXY!"=="system" set "PROXY="&set "PROXY_FORCE_WIN=1"
-
-if defined PROXY set "PROXY_SRC=--proxy"
-
-if not defined PROXY if not defined PROXY_FORCE_WIN if defined HTTPS_PROXY set "PROXY=!HTTPS_PROXY!"&set "PROXY_SRC=HTTPS_PROXY env"
-if not defined PROXY if not defined PROXY_FORCE_WIN if defined https_proxy set "PROXY=!https_proxy!"&set "PROXY_SRC=https_proxy env"
-if not defined PROXY if not defined PROXY_FORCE_WIN if defined HTTP_PROXY set "PROXY=!HTTP_PROXY!"&set "PROXY_SRC=HTTP_PROXY env"
-if not defined PROXY if not defined PROXY_FORCE_WIN if defined http_proxy set "PROXY=!http_proxy!"&set "PROXY_SRC=http_proxy env"
-
-set "WINPROXY="
-if not defined PROXY if defined PROXY_FORCE_WIN (
-    for /f "usebackq delims=" %%P in (`powershell -NoProfile -Command "$k = Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings' -ErrorAction SilentlyContinue; if ($k.ProxyEnable -eq 1 -and $k.ProxyServer) { $raw = $k.ProxyServer; $m = @{}; $raw -split ';' | ForEach-Object { $p = $_ -split '=',2; if ($p.Count -eq 2) { $m[$p[0]] = $p[1] } }; if ($m.ContainsKey('https')) { $m['https'] } elseif ($m.ContainsKey('http')) { $m['http'] } elseif ($raw -notmatch '=') { $raw } }"`) do set "WINPROXY=%%P"
-    if defined WINPROXY set "PROXY=!WINPROXY!"&set "PROXY_SRC=Windows system proxy"
-)
-
-set "WINPAC="
-if not defined PROXY if defined PROXY_FORCE_WIN (
-    for /f "usebackq delims=" %%P in (`powershell -NoProfile -Command "$k = Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings' -ErrorAction SilentlyContinue; $k.AutoConfigURL"`) do set "WINPAC=%%P"
-)
-
-call :mask_proxy "!PROXY!"
-if defined PROXY (
-    echo     Using   : !PROXY_DISP!  ^(!PROXY_SRC!^)
-) else (
-    if defined WINPAC (
-        echo     Using   : none  - Windows uses a PAC script ^(!WINPAC!^)
-        echo               PAC scripts cannot be resolved automatically.
-        echo               Find the actual proxy host:port and pass it via --proxy.
-    ) else if defined PROXY_FORCE_WIN (
-        echo     Using   : none  - no manual proxy configured in Windows
-    ) else (
-        echo     Using   : none  ^(direct connection - no proxy^)
-    )
-    echo     If your network requires a proxy, retry with:
-    echo       Check-Maven.cmd --proxy http://proxy.example.com:8080
-    echo       Check-Maven.cmd --proxy system    ^(look up and use the Windows system proxy^)
-)
-
-set "PROXY_OPT="
-if defined PROXY set "PROXY_OPT=-x !PROXY!"
+call "!COMMON!" :resolve_proxy "Check-Maven.cmd"
 
 rem ============================================================
 rem  Auto-detect token from acb_settings.xml
@@ -138,16 +131,7 @@ echo [*] Looking for ACB token in AnypointCodeBuilder\.tmp\ ...
 
 rem -- Check mule.homeDirectory in VS Code settings.json first --
 set "ACB_HOME=%USERPROFILE%\AnypointCodeBuilder"
-rem If --vscode points to a directory, append User\settings.json
-if defined VSCODE_SETTINGS (
-    if exist "!VSCODE_SETTINGS!\User\settings.json" set "VSCODE_SETTINGS=!VSCODE_SETTINGS!\User\settings.json"
-)
-if not defined VSCODE_SETTINGS (
-    if exist "%APPDATA%\Code\User\settings.json" set "VSCODE_SETTINGS=%APPDATA%\Code\User\settings.json"
-)
-if not defined VSCODE_SETTINGS (
-    if exist "%APPDATA%\Code - Insiders\User\settings.json" set "VSCODE_SETTINGS=%APPDATA%\Code - Insiders\User\settings.json"
-)
+call "!COMMON!" :find_vscode
 if defined VSCODE_SETTINGS echo     VS Code settings: !VSCODE_SETTINGS!
 if exist "!VSCODE_SETTINGS!" (
     for /f "usebackq delims=" %%H in (`powershell -NoProfile -Command "try { $s=Get-Content '!VSCODE_SETTINGS!' -Raw | ConvertFrom-Json; if($s.'mule.homeDirectory'){$s.'mule.homeDirectory'} } catch {}"`) do (
@@ -289,8 +273,17 @@ echo   Test 4 NG with an HTML body: a proxy or portal returned an error
 echo   page in place of the jar. Maven would cache that as a corrupt
 echo   artifact - delete it from %%USERPROFILE%%\.m2\repository and retry.
 echo.
-endlocal
-exit /b 0
+
+set "RC=0"
+if !NGCOUNT! gtr 0 set "RC=1"
+
+rem ============================================================
+rem  :finish  - single exit point; hands RC back through the log pipe
+rem ============================================================
+:finish
+if not defined RC set "RC=1"
+if defined RCFILE >"!RCFILE!" echo !RC!
+for /f "delims=" %%r in ("!RC!") do endlocal & exit /b %%r
 
 
 rem ============================================================
@@ -323,6 +316,7 @@ if !CURL_RC!==0 if "!ST!"=="403" set "MSG=NG  (HTTP 403 - org/permission denied)
 if !CURL_RC!==0 if "!ST!"=="404" set "MSG=--  (HTTP 404 - reached repo, artifact not found)"
 if !CURL_RC!==0 if "!ST!"=="407" set "MSG=NG  (HTTP 407 - proxy auth required)"
 if not defined MSG set "MSG=?   (HTTP !ST!)"
+if "!MSG:~0,2!"=="NG" set /a NGCOUNT+=1
 goto :eof
 
 
@@ -356,20 +350,20 @@ if not exist "!LOCAL_POM!" (
     if !POMSZ! lss 100 (
         echo         NG - File too small ^(!POMSZ! bytes^), likely corrupt
         echo         Delete: del "!LOCAL_POM!"
-        set "CACHE_NG=1"
+        set "CACHE_NG=1"&set /a NGCOUNT+=1
     ) else (
         rem Check if it's HTML instead of XML
         findstr /i /c:"<html" "!LOCAL_POM!" >nul 2>&1
         if !errorlevel!==0 (
             echo         NG - Contains HTML ^(proxy error page cached as POM^)
             echo         Delete: del "!LOCAL_POM!"
-            set "CACHE_NG=1"
+            set "CACHE_NG=1"&set /a NGCOUNT+=1
         ) else (
             findstr /i /c:"<project" "!LOCAL_POM!" >nul 2>&1
             if !errorlevel! neq 0 (
                 echo         NG - Not a valid Maven POM ^(missing ^<project^> tag^)
                 echo         Delete: del "!LOCAL_POM!"
-                set "CACHE_NG=1"
+                set "CACHE_NG=1"&set /a NGCOUNT+=1
             ) else (
                 echo         OK  ^(!POMSZ! bytes, valid XML^)
             )
@@ -387,25 +381,25 @@ if not exist "!LOCAL_JAR!" (
     if !JARSZ!==0 (
         echo         NG - 0 bytes ^(empty file^)
         echo         Delete: del "!LOCAL_JAR!"
-        set "CACHE_NG=1"
+        set "CACHE_NG=1"&set /a NGCOUNT+=1
     ) else if !JARSZ! lss 1000 (
         echo         NG - File too small ^(!JARSZ! bytes^), likely corrupt or HTML
         echo         Delete: del "!LOCAL_JAR!"
-        set "CACHE_NG=1"
+        set "CACHE_NG=1"&set /a NGCOUNT+=1
     ) else (
         rem Check ZIP magic (PK = 0x50 0x4B)
-        call :zip_magic "!LOCAL_JAR!"
+        call "!COMMON!" :zip_magic "!LOCAL_JAR!"
         if not "!MAGIC!"=="PK" (
             rem Could be HTML error page
             findstr /i /c:"<html" "!LOCAL_JAR!" >nul 2>&1
             if !errorlevel!==0 (
                 echo         NG - Contains HTML ^(proxy error page cached as JAR^)
                 echo         Delete: del "!LOCAL_JAR!"
-                set "CACHE_NG=1"
+                set "CACHE_NG=1"&set /a NGCOUNT+=1
             ) else (
                 echo         ?   ^(!JARSZ! bytes, ZIP magic not detected^)
                 echo         Consider: del "!LOCAL_JAR!"
-                set "CACHE_NG=1"
+                set "CACHE_NG=1"&set /a NGCOUNT+=1
             )
         ) else (
             echo         OK  ^(!JARSZ! bytes, valid ZIP^)
@@ -435,6 +429,7 @@ if !CURL_RC!==0 (
     goto :eof
 )
 if !CURL_RC!==60 (
+    set /a NGCOUNT+=1
     echo   Connectivity : NG  ^(curl 60 - certificate not trusted^)
     echo   Chain as presented by the server:
     curl.exe -sk -o nul -w "%%{certs}" !PROXY_OPT! --max-time 20 "!URL!" > "%WOUT%" 2>nul
@@ -517,16 +512,19 @@ if not "!ST!"=="200" (
 rem Check file size
 for %%f in ("!POMF!") do set "POMSZ=%%~zf"
 if "!POMSZ!"=="0" (
+    set /a NGCOUNT+=1
     echo   Result : NG  - the file is EMPTY ^(0 bytes^)
     goto :eof
 )
 if not defined POMSZ (
+    set /a NGCOUNT+=1
     echo   Result : NG  - download failed ^(no file^)
     goto :eof
 )
 rem Check content - read first line to verify it's XML, not HTML
 set "POMHEAD="
 if not exist "!POMF!" (
+    set /a NGCOUNT+=1
     echo   Result : NG  - download file missing
     goto :eof
 )
@@ -534,10 +532,12 @@ for /f "usebackq tokens=* delims=" %%L in ("!POMF!") do (
     if not defined POMHEAD set "POMHEAD=%%L"
 )
 echo "!POMHEAD!" | findstr /i /l /c:"<html" /c:"<!DOCTYPE" >nul 2>&1 && (
+    set /a NGCOUNT+=1
     echo   Result : NG  - the body is HTML, not XML ^(proxy error page?^)
     goto :eof
 )
 echo "!POMHEAD!" | findstr /i /l /c:"<project" /c:"<?xml" >nul 2>&1 || (
+    set /a NGCOUNT+=1
     echo   Result : NG  - content does not look like XML
     goto :eof
 )
@@ -623,24 +623,28 @@ if exist "!JARF!" for %%z in ("!JARF!") do set "FSZ=%%~zz"
 echo   Download : OK  ^(HTTP 200, !FSZ! bytes, Content-Type: !CT!^)
 
 if "!FSZ!"=="0" (
+    set /a NGCOUNT+=1
     echo   Content  : NG  - the file is EMPTY ^(0 bytes^)
     goto :eof
 )
 if not "!FSZ!"=="!SZ!" (
+    set /a NGCOUNT+=1
     echo   Content  : NG  - only !FSZ! of !SZ! bytes landed on disk ^(truncated^)
     goto :eof
 )
 
 echo !CT! | findstr /i /c:"html" /c:"text/" /c:"json" >nul
 if not errorlevel 1 (
+    set /a NGCOUNT+=1
     echo   Content  : NG  - the body is !CT!, not a jar.
     echo              A proxy or login portal answered instead of the repo:
     call :show_head
     goto :eof
 )
 
-call :zip_magic "!JARF!"
+call "!COMMON!" :zip_magic "!JARF!"
 if not "!MAGIC!"=="PK" (
+    set /a NGCOUNT+=1
     echo   Content  : NG  - not a ZIP archive ^(no PK header^). First bytes:
     call :show_head
     goto :eof
@@ -655,6 +659,7 @@ if not defined JARTOOL (
 del /q "!JARLIST!" 2>nul
 if /i "!JARMODE!"=="jar" ( "!JARTOOL!" tf "!JARF!" > "!JARLIST!" 2>nul ) else ( "!JARTOOL!" -tf "!JARF!" > "!JARLIST!" 2>nul )
 if errorlevel 1 (
+    set /a NGCOUNT+=1
     echo   Content  : NG  - the archive is corrupt ^(!JARMODE! could not read it^)
     goto :eof
 )
@@ -671,10 +676,12 @@ for /f "usebackq delims=" %%l in ("!JARLIST!") do (
     if /i "!LN:~-6!"==".class" set /a CLASSES+=1
 )
 if !ENTRIES! EQU 0 (
+    set /a NGCOUNT+=1
     echo   Content  : NG  - valid ZIP but it contains NO entries at all
     goto :eof
 )
 if !FILES! EQU 0 (
+    set /a NGCOUNT+=1
     echo   Content  : NG  - !ENTRIES! entries but every one is a directory:
     echo              the jar has no actual content
     goto :eof
@@ -712,6 +719,7 @@ echo.
 echo   Fetching organization ID from Anypoint Platform...
 for /f "usebackq delims=" %%O in (`curl.exe -sS !PROXY_OPT! -H "Authorization: Bearer !TOKEN!" "https://anypoint.mulesoft.com/accounts/api/me" 2^>nul ^| powershell -NoProfile -Command "$j=[Console]::In.ReadToEnd() | ConvertFrom-Json; $j.user.organizationId"`) do set "EXCHG=%%O"
 if not defined EXCHG (
+    set /a NGCOUNT+=1
     echo   [ERROR] Could not get organization ID. Token may be invalid.
     goto :eof
 )
@@ -735,10 +743,12 @@ if defined SKIP_AUTH (
 )
 set CURL_RC=!errorlevel!
 if "!CURL_RC!" neq "0" (
+    set /a NGCOUNT+=1
     echo   Result : NG  - curl !CURL_RC!
     goto :eof
 )
 if not exist "!EXCHF!" (
+    set /a NGCOUNT+=1
     echo   Result : NG  - response file not created
     goto :eof
 )
@@ -747,6 +757,7 @@ rem Extract version from JSON using PowerShell
 set "EXCHVER="
 for /f "usebackq delims=" %%V in (`powershell -NoProfile -Command "$j=Get-Content '!EXCHF!' -Raw | ConvertFrom-Json; $j.version"`) do set "EXCHVER=%%V"
 if not defined EXCHVER (
+    set /a NGCOUNT+=1
     echo   Result : NG  - could not parse version from response
     goto :eof
 )
@@ -757,6 +768,7 @@ set "EXCHDL="
 for /f "usebackq delims=" %%U in (`powershell -NoProfile -Command "$j=Get-Content '!EXCHF!' -Raw | ConvertFrom-Json; ($j.files | Where-Object { $_.classifier -match 'raml' } | Select-Object -First 1).downloadURL"`) do set "EXCHDL=%%U"
 del /q "!EXCHF!" 2>nul
 if not defined EXCHDL (
+    set /a NGCOUNT+=1
     echo   Result : NG  - no RAML file found in asset
     goto :eof
 )
@@ -791,6 +803,7 @@ if exist "!EXCHZIP!" for %%z in ("!EXCHZIP!") do set "ZIPSZ=%%~zz"
 echo   Download : OK  ^(HTTP 200, !ZIPSZ! bytes^)
 
 if "!ZIPSZ!"=="0" (
+    set /a NGCOUNT+=1
     echo   Content  : NG  - the file is EMPTY
     del /q "!EXCHZIP!" 2>nul
     goto :eof
@@ -806,6 +819,7 @@ if not defined JARTOOL (
 "!JARTOOL!" tvf "!EXCHZIP!" > "!ZIPLIST!" 2>&1
 set JAR_RC=!errorlevel!
 if !JAR_RC! neq 0 (
+    set /a NGCOUNT+=1
     echo   Content  : NG  - not a valid ZIP ^(jar rc=!JAR_RC!^)
     del /q "!EXCHZIP!" "!ZIPLIST!" 2>nul
     goto :eof
@@ -824,6 +838,7 @@ for /f "usebackq tokens=1,*" %%a in ("!ZIPLIST!") do (
     echo %%b | findstr /i /c:".raml" /c:".yaml" /c:".json" >nul && set /a ZRAML+=1
 )
 if !ZEMPTY! gtr 0 (
+    set /a NGCOUNT+=1
     echo   Content  : NG  - !ZEMPTY! empty files found ^(0 bytes^)
     del /q "!EXCHZIP!" "!ZIPLIST!" 2>nul
     goto :eof
@@ -832,31 +847,3 @@ echo   Content  : OK  ^(!ZCNT! files, !ZRAML! specs, !ZTOTAL! bytes total^)
 del /q "!EXCHZIP!" "!ZIPLIST!" 2>nul
 goto :eof
 
-rem ============================================================
-rem  :mask_proxy <value> -- sets PROXY_DISP with any embedded
-rem  credentials replaced by *** (the value is echoed to the
-rem  console and to logs\, so user:pass@host must never appear)
-rem ============================================================
-:mask_proxy
-set "PROXY_DISP=%~1"
-rem !PROXY_DISP! (not %~1) from here on: delayed expansion is not
-rem re-parsed, so a value containing & or | stays literal.
-echo(!PROXY_DISP!| findstr /c:"@" >nul || goto :eof
-for /f "tokens=1,* delims=@" %%x in ("!PROXY_DISP!") do (
-    set "MP_CRED=%%x"
-    set "MP_HOST=%%y"
-)
-set "PROXY_DISP=***@!MP_HOST!"
-for /f "tokens=1,* delims=/" %%s in ("!MP_CRED!") do (
-    if not "%%t"=="" set "PROXY_DISP=%%s//***@!MP_HOST!"
-)
-goto :eof
-
-rem ============================================================
-rem  :zip_magic <file> -- sets MAGIC to the first 2 bytes as text
-rem  (set /p cannot be used: it stops at NUL/EOF bytes in a jar)
-rem ============================================================
-:zip_magic
-set "MAGIC="
-for /f "usebackq delims=" %%M in (`powershell -NoProfile -Command "$f=[System.IO.File]::OpenRead('%~1'); $b=New-Object byte[] 2; $n=$f.Read($b,0,2); $f.Close(); if($n -eq 2){[char]$b[0]+[char]$b[1]}"`) do set "MAGIC=%%M"
-goto :eof
