@@ -67,13 +67,13 @@ if not defined PROXY if not defined PROXY_FORCE_WIN if defined HTTP_PROXY set "P
 if not defined PROXY if not defined PROXY_FORCE_WIN if defined http_proxy set "PROXY=!http_proxy!"&set "PROXY_SRC=http_proxy env"
 
 set "WINPROXY="
-if not defined PROXY (
+if not defined PROXY if defined PROXY_FORCE_WIN (
     for /f "usebackq delims=" %%P in (`powershell -NoProfile -Command "$k = Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings' -ErrorAction SilentlyContinue; if ($k.ProxyEnable -eq 1 -and $k.ProxyServer) { $raw = $k.ProxyServer; $m = @{}; $raw -split ';' | ForEach-Object { $p = $_ -split '=',2; if ($p.Count -eq 2) { $m[$p[0]] = $p[1] } }; if ($m.ContainsKey('https')) { $m['https'] } elseif ($m.ContainsKey('http')) { $m['http'] } elseif ($raw -notmatch '=') { $raw } }"`) do set "WINPROXY=%%P"
     if defined WINPROXY set "PROXY=!WINPROXY!"&set "PROXY_SRC=Windows system proxy"
 )
 
 set "WINPAC="
-if not defined PROXY (
+if not defined PROXY if defined PROXY_FORCE_WIN (
     for /f "usebackq delims=" %%P in (`powershell -NoProfile -Command "$k = Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings' -ErrorAction SilentlyContinue; $k.AutoConfigURL"`) do set "WINPAC=%%P"
 )
 
@@ -84,12 +84,14 @@ if defined PROXY (
         echo     Using   : none  - Windows uses a PAC script ^(!WINPAC!^)
         echo               PAC scripts cannot be resolved automatically.
         echo               Find the actual proxy host:port and pass it via --proxy.
+    ) else if defined PROXY_FORCE_WIN (
+        echo     Using   : none  - no manual proxy configured in Windows
     ) else (
         echo     Using   : none  ^(direct connection - no proxy^)
     )
     echo     If your network requires a proxy, retry with:
     echo       Check-Maven.cmd --proxy http://proxy.example.com:8080
-    echo       Check-Maven.cmd --proxy system    ^(use the Windows system proxy^)
+    echo       Check-Maven.cmd --proxy system    ^(look up and use the Windows system proxy^)
 )
 
 set "PROXY_OPT="
