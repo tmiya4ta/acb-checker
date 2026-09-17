@@ -159,7 +159,7 @@ echo.
 rem ---- [1/3] settings.json ----
 echo   [1/3] settings.json
 if defined DO_MASK (
-    powershell -NoProfile -Command "$src='!VSCODE_SETTINGS!'; $dst='!DEST!\settings.json'; $c=Get-Content $src -Raw; $c=$c -replace '(\"(?:token|refreshToken|access_token)\"\s*:\s*\")[^\"]*\"','${1}***MASKED***\"'; $c|Set-Content $dst -Encoding UTF8; Write-Host '         OK (トークンをマスクしました)'"
+    powershell -NoProfile -Command "$src='!VSCODE_SETTINGS!'; $dst='!DEST!\settings.json'; $c=Get-Content $src -Raw; $c=$c -replace '(\x22(?:token|refreshToken|access_token)\x22\s*:\s*\x22)[^\x22]*\x22','${1}***MASKED***\x22'; $c|Set-Content $dst -Encoding UTF8; Write-Host '         OK (トークンをマスクしました)'"
 ) else (
     copy "!VSCODE_SETTINGS!" "!DEST!\settings.json" >nul
     echo          OK
@@ -202,7 +202,7 @@ if not defined LATEST_SESSION (
 echo          Session: !LATEST_SESSION!
 
 if defined DO_MASK (
-    powershell -NoProfile -Command "$src='!LATEST_SESSION!'; $dst='!DEST!\vscode-exthost'; Get-ChildItem $src -Recurse -File -Filter '*.log' -ErrorAction SilentlyContinue | Where-Object { $_.FullName -match 'exthost' } | ForEach-Object { $rel=$_.FullName.Substring($src.Length+1); $t=Join-Path $dst $rel; $d=[System.IO.Path]::GetDirectoryName($t); if(-not(Test-Path $d)){New-Item -ItemType Directory -Force -Path $d|Out-Null}; $c=Get-Content $_.FullName -Raw -ErrorAction SilentlyContinue; if($c){$c=$c -replace '\"token\":\"[^\"]+\"','\"token\":\"***MASKED***\"'; $c=$c -replace '\"refreshToken\":\"[^\"]+\"','\"refreshToken\":\"***MASKED***\"'; $c|Set-Content $t -Encoding UTF8} }"
+    powershell -NoProfile -Command "$src='!LATEST_SESSION!'; $dst='!DEST!\vscode-exthost'; Get-ChildItem $src -Recurse -File -Filter '*.log' -ErrorAction SilentlyContinue | Where-Object { $_.FullName -match 'exthost' } | ForEach-Object { $rel=$_.FullName.Substring($src.Length+1); $t=Join-Path $dst $rel; $d=[System.IO.Path]::GetDirectoryName($t); if(-not(Test-Path $d)){New-Item -ItemType Directory -Force -Path $d|Out-Null}; $c=Get-Content $_.FullName -Raw -ErrorAction SilentlyContinue; if($c){$c=$c -replace '\x22token\x22:\x22[^\x22]+\x22','\x22token\x22:\x22***MASKED***\x22'; $c=$c -replace '\x22refreshToken\x22:\x22[^\x22]+\x22','\x22refreshToken\x22:\x22***MASKED***\x22'; $c|Set-Content $t -Encoding UTF8} }"
 ) else (
     powershell -NoProfile -Command "$src='!LATEST_SESSION!'; $dst='!DEST!\vscode-exthost'; Get-ChildItem $src -Recurse -File -Filter '*.log' -ErrorAction SilentlyContinue | Where-Object { $_.FullName -match 'exthost' } | ForEach-Object { $rel=$_.FullName.Substring($src.Length+1); $t=Join-Path $dst $rel; $d=[System.IO.Path]::GetDirectoryName($t); if(-not(Test-Path $d)){New-Item -ItemType Directory -Force -Path $d|Out-Null}; Copy-Item $_.FullName $t -ErrorAction SilentlyContinue }"
 )
