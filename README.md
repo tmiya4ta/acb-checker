@@ -327,6 +327,50 @@ JDK（keytool）は以下の順で自動検出:
 
 ---
 
+## ACB-Trace.cmd
+
+**ACB のデバッグトレースを有効化/無効化し、ログをまとめて収集する。**
+
+```cmd
+ACB-Trace.cmd --enable              trace設定を settings.json に追加
+ACB-Trace.cmd --disable             trace設定を settings.json から削除
+ACB-Trace.cmd --status              現在の trace 設定値を表示
+ACB-Trace.cmd --collect             ログを logs\ に収集
+ACB-Trace.cmd --collect --mask      ログを収集（トークンをマスク）
+ACB-Trace.cmd --disable --collect --mask  ログ収集してから無効化（推奨）
+ACB-Trace.cmd --acb "C:\Users\<user>\***\AnypointCodeBuilder"  ACBホームを直接指定
+```
+
+### 推奨手順
+
+```
+1. ACB-Trace.cmd --enable          ← 有効化
+2. VS Code を再起動
+3. 問題を再現する
+4. ACB-Trace.cmd --disable --collect --mask   ← ログ収集 + 無効化 + マスク
+5. logs\ACB-logs-<日時>\ フォルダを確認・共有
+```
+
+### 収集されるログ
+
+| ファイル | 内容 |
+|----------|------|
+| `settings.json` | VS Code の設定（`--mask` でトークンをマスク） |
+| `acb-home-logs\ACBLog-*.log` | ACB の warn/error ログ |
+| `vscode-exthost\` | VS Code 拡張ホストのデバッグトレース（JSON-RPC 通信含む） |
+
+### --mask オプション
+
+`token`、`refreshToken`、`access_token` の値を `***MASKED***` に置換してからコピーする。
+他者に共有する場合は必ず `--mask` を付けること。
+
+### --disable --collect の順序
+
+`--disable --collect` を同時に指定した場合、**ログ収集を先に**実行してから設定を削除する。
+trace が有効な状態のログをもれなく収集できる。
+
+---
+
 ## Verify-Check-TLS.cmd
 
 **Check-TLS.cmd の動作確認用（ネガティブチェック）**
