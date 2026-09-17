@@ -2,7 +2,11 @@
 rem ============================================================
 rem  Check-TLS.cmd - TLS inspection (MITM) detection using curl.exe
 rem
-rem  Usage: Check-TLS.cmd [--vscode <PATH>] https://example.com [https://...]
+rem  Usage: Check-TLS.cmd [--vscode <PATH>] [https://example.com ...]
+rem
+rem  Without URL args, checks google.com plus the Maven/Exchange hosts
+rem  used by Check-Maven.cmd for POM/JAR/ZIP downloads:
+rem    repository.mulesoft.org, maven.anypoint.mulesoft.com, anypoint.mulesoft.com
 rem
 rem  Requirements:
 rem    curl.exe  - Windows 10 1803+ (Schannel = Windows cert store)
@@ -137,7 +141,7 @@ if defined JKS (
 )
 echo ============================================================
 
-if "!URLS!"=="" set "URLS=https://www.google.com"
+if "!URLS!"=="" set "URLS=https://www.google.com https://repository.mulesoft.org/releases/ https://maven.anypoint.mulesoft.com/api/v3/maven/ https://anypoint.mulesoft.com/"
 for %%u in (!URLS!) do call :check %%u
 
 echo.

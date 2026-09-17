@@ -189,10 +189,17 @@ Check-Maven.cmd --asset my-api-spec
 **TLS 証明書チェーンを検査し、社内プロキシの MITM を検出する。**
 
 ```cmd
+Check-TLS.cmd
 Check-TLS.cmd https://repository.mulesoft.org/releases/
 Check-TLS.cmd --vscode C:\vscode https://repository.mulesoft.org/releases/
 Check-TLS.cmd --proxy http://proxy.example.com:8080 https://repository.mulesoft.org/releases/
 ```
+
+URL を指定しない場合、以下をデフォルトでチェックする:
+- `https://www.google.com`（一般的な接続確認）
+- `https://repository.mulesoft.org/releases/`（POM/JAR ダウンロード元・公開リポジトリ）
+- `https://maven.anypoint.mulesoft.com/api/v3/maven/`（POM/JAR ダウンロード元・Exchange 経由）
+- `https://anypoint.mulesoft.com/`（Exchange API・組織情報取得）
 
 `--proxy` の挙動は Check-Maven.cmd と同じ（`--proxy` > 環境変数 > 直接接続）。
 `--proxy system` を指定したときだけ Windows の system proxy 設定を検索して使う。
