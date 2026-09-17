@@ -55,10 +55,22 @@ if defined SHOWPROXY (
     powershell -NoProfile -Command "$k = Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings' -ErrorAction SilentlyContinue; Write-Host ('  ProxyEnable   : ' + $(if($k.ProxyEnable -eq 1){'1 (enabled)'}else{'0 (disabled)'})); if ($k.ProxyServer) { Write-Host ('  ProxyServer   : ' + $k.ProxyServer); if ($k.ProxyServer -match '=') { $k.ProxyServer -split ';' | ForEach-Object { $p = $_ -split '=',2; if ($p.Count -eq 2) { Write-Host ('    ' + $p[0] + ' : ' + $p[1]) } } } } else { Write-Host '  ProxyServer   : (not set)' }; if ($k.AutoConfigURL) { Write-Host ('  AutoConfigURL : ' + $k.AutoConfigURL + '  (PAC script - not auto-resolved by this tool)') } else { Write-Host '  AutoConfigURL : (not set)' }"
     echo.
     echo   Environment variables:
-    if defined HTTPS_PROXY (echo     HTTPS_PROXY : !HTTPS_PROXY!) else (echo     HTTPS_PROXY : ^(not set^))
-    if defined https_proxy (echo     https_proxy : !https_proxy!) else (echo     https_proxy : ^(not set^))
-    if defined HTTP_PROXY  (echo     HTTP_PROXY  : !HTTP_PROXY!) else (echo     HTTP_PROXY  : ^(not set^))
-    if defined http_proxy  (echo     http_proxy  : !http_proxy!) else (echo     http_proxy  : ^(not set^))
+    if defined HTTPS_PROXY (
+        call :mask_proxy "!HTTPS_PROXY!"
+        echo     HTTPS_PROXY : !PROXY_DISP!
+    ) else (echo     HTTPS_PROXY : ^(not set^))
+    if defined https_proxy (
+        call :mask_proxy "!https_proxy!"
+        echo     https_proxy : !PROXY_DISP!
+    ) else (echo     https_proxy : ^(not set^))
+    if defined HTTP_PROXY (
+        call :mask_proxy "!HTTP_PROXY!"
+        echo     HTTP_PROXY  : !PROXY_DISP!
+    ) else (echo     HTTP_PROXY  : ^(not set^))
+    if defined http_proxy (
+        call :mask_proxy "!http_proxy!"
+        echo     http_proxy  : !PROXY_DISP!
+    ) else (echo     http_proxy  : ^(not set^))
     echo ============================================================
     exit /b 0
 )
@@ -90,8 +102,9 @@ if not defined PROXY if defined PROXY_FORCE_WIN (
     for /f "usebackq delims=" %%P in (`powershell -NoProfile -Command "$k = Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings' -ErrorAction SilentlyContinue; $k.AutoConfigURL"`) do set "WINPAC=%%P"
 )
 
+call :mask_proxy "!PROXY!"
 if defined PROXY (
-    echo   Using : !PROXY!  ^(!PROXY_SRC!^)
+    echo   Using : !PROXY_DISP!  ^(!PROXY_SRC!^)
 ) else (
     if defined WINPAC (
         echo   Using : none  - Windows uses a PAC script ^(!WINPAC!^)
@@ -173,6 +186,8 @@ echo.
 echo   Windows OK / Java NG  - CA missing from JDK cacerts
 echo                           Fix: -Djavax.net.ssl.trustStoreType=WINDOWS-ROOT
 echo ------------------------------------------------------------
+
+del /q "%TEMP%\tls_chain.txt" "%TEMP%\tls_chain_err.txt" "%TEMP%\tls_e1.txt" "%TEMP%\tls_e2.txt" "%TEMP%\tls_cacerts.pem" 2>nul
 endlocal
 exit /b 0
 
@@ -248,4 +263,24 @@ set RC=!errorlevel!
 if !RC!==0  (echo   Java cacerts         : OK) else (
 if !RC!==60 (echo   Java cacerts         : NG - CA not in cacerts ^(PKIX path building failed^)) else (
             echo   Java cacerts         : ? curl exit code !RC!))
+goto :eof
+
+rem ============================================================
+rem  :mask_proxy <value> -- sets PROXY_DISP with any embedded
+rem  credentials replaced by *** (the value is echoed to the
+rem  console and to logs\, so user:pass@host must never appear)
+rem ============================================================
+:mask_proxy
+set "PROXY_DISP=%~1"
+rem !PROXY_DISP! (not %~1) from here on: delayed expansion is not
+rem re-parsed, so a value containing & or | stays literal.
+echo(!PROXY_DISP!| findstr /c:"@" >nul || goto :eof
+for /f "tokens=1,* delims=@" %%x in ("!PROXY_DISP!") do (
+    set "MP_CRED=%%x"
+    set "MP_HOST=%%y"
+)
+set "PROXY_DISP=***@!MP_HOST!"
+for /f "tokens=1,* delims=/" %%s in ("!MP_CRED!") do (
+    if not "%%t"=="" set "PROXY_DISP=%%s//***@!MP_HOST!"
+)
 goto :eof

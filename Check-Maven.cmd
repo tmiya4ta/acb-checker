@@ -64,10 +64,22 @@ if defined SHOWPROXY (
     powershell -NoProfile -Command "$k = Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings' -ErrorAction SilentlyContinue; Write-Host ('  ProxyEnable   : ' + $(if($k.ProxyEnable -eq 1){'1 (enabled)'}else{'0 (disabled)'})); if ($k.ProxyServer) { Write-Host ('  ProxyServer   : ' + $k.ProxyServer); if ($k.ProxyServer -match '=') { $k.ProxyServer -split ';' | ForEach-Object { $p = $_ -split '=',2; if ($p.Count -eq 2) { Write-Host ('    ' + $p[0] + ' : ' + $p[1]) } } } } else { Write-Host '  ProxyServer   : (not set)' }; if ($k.AutoConfigURL) { Write-Host ('  AutoConfigURL : ' + $k.AutoConfigURL + '  (PAC script - not auto-resolved by this tool)') } else { Write-Host '  AutoConfigURL : (not set)' }"
     echo.
     echo   Environment variables:
-    if defined HTTPS_PROXY (echo     HTTPS_PROXY : !HTTPS_PROXY!) else (echo     HTTPS_PROXY : ^(not set^))
-    if defined https_proxy (echo     https_proxy : !https_proxy!) else (echo     https_proxy : ^(not set^))
-    if defined HTTP_PROXY  (echo     HTTP_PROXY  : !HTTP_PROXY!) else (echo     HTTP_PROXY  : ^(not set^))
-    if defined http_proxy  (echo     http_proxy  : !http_proxy!) else (echo     http_proxy  : ^(not set^))
+    if defined HTTPS_PROXY (
+        call :mask_proxy "!HTTPS_PROXY!"
+        echo     HTTPS_PROXY : !PROXY_DISP!
+    ) else (echo     HTTPS_PROXY : ^(not set^))
+    if defined https_proxy (
+        call :mask_proxy "!https_proxy!"
+        echo     https_proxy : !PROXY_DISP!
+    ) else (echo     https_proxy : ^(not set^))
+    if defined HTTP_PROXY (
+        call :mask_proxy "!HTTP_PROXY!"
+        echo     HTTP_PROXY  : !PROXY_DISP!
+    ) else (echo     HTTP_PROXY  : ^(not set^))
+    if defined http_proxy (
+        call :mask_proxy "!http_proxy!"
+        echo     http_proxy  : !PROXY_DISP!
+    ) else (echo     http_proxy  : ^(not set^))
     echo ============================================================
     exit /b 0
 )
@@ -94,8 +106,9 @@ if not defined PROXY if defined PROXY_FORCE_WIN (
     for /f "usebackq delims=" %%P in (`powershell -NoProfile -Command "$k = Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings' -ErrorAction SilentlyContinue; $k.AutoConfigURL"`) do set "WINPAC=%%P"
 )
 
+call :mask_proxy "!PROXY!"
 if defined PROXY (
-    echo     Using   : !PROXY!  ^(!PROXY_SRC!^)
+    echo     Using   : !PROXY_DISP!  ^(!PROXY_SRC!^)
 ) else (
     if defined WINPAC (
         echo     Using   : none  - Windows uses a PAC script ^(!WINPAC!^)
@@ -199,6 +212,7 @@ set "REPO_MULESOFT=https://repository.mulesoft.org/releases"
 set "REPO_EXCHANGE=https://maven.anypoint.mulesoft.com/api/v3/maven"
 set "BASIC_USER=~~~Token~~~"
 set "WOUT=%TEMP%\mv_w.txt"
+set "WERR=%TEMP%\mv_err.txt"
 set "JARF=%TEMP%\mv_dl.jar"
 set "JARLIST=%TEMP%\mv_jar_list.txt"
 
@@ -254,7 +268,7 @@ echo  5. Exchange API file download test
 echo ============================================================
 call :check_exchange_download
 
-del /q "%WOUT%" "%JARF%" "%JARLIST%" 2>nul
+del /q "%WOUT%" "%WERR%" "%JARF%" "%JARLIST%" "%TEMP%\mv_dl.pom" 2>nul
 
 echo.
 echo ============================================================
@@ -284,7 +298,9 @@ rem  :run_curl <extra args...> -- sets CURL_RC / ST / SZ / CT
 rem ============================================================
 :run_curl
 set "ST=" & set "SZ=" & set "CT="
-curl.exe -sS -w "%%{http_code} %%{size_download} %%{content_type}\n" !PROXY_OPT! --connect-timeout 10 --max-time 30 %* > "%WOUT%" 2>&1
+rem stderr goes to its own file: merging it into %WOUT% lets a curl
+rem warning become the last line and poison the -w parsing below.
+curl.exe -sS -w "%%{http_code} %%{size_download} %%{content_type}\n" !PROXY_OPT! --connect-timeout 10 --max-time 30 %* > "%WOUT%" 2>"%WERR%"
 set CURL_RC=!errorlevel!
 for /f "usebackq tokens=1,2,3" %%a in ("%WOUT%") do ( set "ST=%%a" & set "SZ=%%b" & set "CT=%%c" )
 goto :eof
@@ -378,9 +394,8 @@ if not exist "!LOCAL_JAR!" (
         set "CACHE_NG=1"
     ) else (
         rem Check ZIP magic (PK = 0x50 0x4B)
-        set /p MAGIC=<"!LOCAL_JAR!"
-        echo !MAGIC! | findstr /b "PK" >nul 2>&1
-        if !errorlevel! neq 0 (
+        call :zip_magic "!LOCAL_JAR!"
+        if not "!MAGIC!"=="PK" (
             rem Could be HTML error page
             findstr /i /c:"<html" "!LOCAL_JAR!" >nul 2>&1
             if !errorlevel!==0 (
@@ -624,8 +639,8 @@ if not errorlevel 1 (
     goto :eof
 )
 
-findstr /b /c:"PK" "!JARF!" >nul 2>&1
-if errorlevel 1 (
+call :zip_magic "!JARF!"
+if not "!MAGIC!"=="PK" (
     echo   Content  : NG  - not a ZIP archive ^(no PK header^). First bytes:
     call :show_head
     goto :eof
@@ -815,4 +830,33 @@ if !ZEMPTY! gtr 0 (
 )
 echo   Content  : OK  ^(!ZCNT! files, !ZRAML! specs, !ZTOTAL! bytes total^)
 del /q "!EXCHZIP!" "!ZIPLIST!" 2>nul
+goto :eof
+
+rem ============================================================
+rem  :mask_proxy <value> -- sets PROXY_DISP with any embedded
+rem  credentials replaced by *** (the value is echoed to the
+rem  console and to logs\, so user:pass@host must never appear)
+rem ============================================================
+:mask_proxy
+set "PROXY_DISP=%~1"
+rem !PROXY_DISP! (not %~1) from here on: delayed expansion is not
+rem re-parsed, so a value containing & or | stays literal.
+echo(!PROXY_DISP!| findstr /c:"@" >nul || goto :eof
+for /f "tokens=1,* delims=@" %%x in ("!PROXY_DISP!") do (
+    set "MP_CRED=%%x"
+    set "MP_HOST=%%y"
+)
+set "PROXY_DISP=***@!MP_HOST!"
+for /f "tokens=1,* delims=/" %%s in ("!MP_CRED!") do (
+    if not "%%t"=="" set "PROXY_DISP=%%s//***@!MP_HOST!"
+)
+goto :eof
+
+rem ============================================================
+rem  :zip_magic <file> -- sets MAGIC to the first 2 bytes as text
+rem  (set /p cannot be used: it stops at NUL/EOF bytes in a jar)
+rem ============================================================
+:zip_magic
+set "MAGIC="
+for /f "usebackq delims=" %%M in (`powershell -NoProfile -Command "$f=[System.IO.File]::OpenRead('%~1'); $b=New-Object byte[] 2; $n=$f.Read($b,0,2); $f.Close(); if($n -eq 2){[char]$b[0]+[char]$b[1]}"`) do set "MAGIC=%%M"
 goto :eof
