@@ -215,10 +215,23 @@ if exist "!DEST!\vscode-exthost\" (
 
 :collect_done
 echo.
-echo ============================================================
-echo   収集完了
-echo   フォルダ: !DEST!
-echo ============================================================
+echo   ZIP 圧縮中...
+set "ZIPFILE=!DEST!.zip"
+powershell -NoProfile -Command "Compress-Archive -Path '!DEST!\*' -DestinationPath '!ZIPFILE!' -Force; Write-Host '         OK'"
+if exist "!ZIPFILE!" (
+    rd /s /q "!DEST!" 2>nul
+    echo.
+    echo ============================================================
+    echo   収集完了
+    echo   ZIP: !ZIPFILE!
+    echo ============================================================
+) else (
+    echo.
+    echo ============================================================
+    echo   収集完了 ^(ZIP 失敗 - フォルダのまま保存^)
+    echo   フォルダ: !DEST!
+    echo ============================================================
+)
 if not defined DO_MASK (
     echo.
     echo   [警告] ログには Anypoint Platform トークンが含まれる場合があります。
