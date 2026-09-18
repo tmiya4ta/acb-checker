@@ -765,7 +765,10 @@ echo   Version: !EXCHVER!
 
 rem Get download URL for RAML file
 set "EXCHDL="
+set "EXCHS3FILE=%TEMP%\mv_s3url.txt"
+del /q "!EXCHS3FILE!" 2>nul
 for /f "usebackq delims=" %%U in (`powershell -NoProfile -Command "$j=Get-Content '!EXCHF!' -Raw | ConvertFrom-Json; ($j.files | Where-Object { $_.classifier -match 'raml' } | Select-Object -First 1).downloadURL"`) do set "EXCHDL=%%U"
+powershell -NoProfile -Command "$j=Get-Content '!EXCHF!' -Raw | ConvertFrom-Json; $u=($j.files | Where-Object { $_.classifier -match 'raml' -and $_.packaging -eq 'zip' } | Select-Object -First 1).externalLink; if($u){[IO.File]::WriteAllText('!EXCHS3FILE!',$u)}" 2>nul
 del /q "!EXCHF!" 2>nul
 if not defined EXCHDL (
     set /a NGCOUNT+=1
@@ -845,5 +848,38 @@ if !ZEMPTY! gtr 0 (
 )
 echo   Content  : OK  ^(!ZCNT! files, !ZRAML! specs, !ZTOTAL! bytes total^)
 del /q "!EXCHZIP!" "!ZIPLIST!" 2>nul
+
+rem Step 3: Download via S3 externalLink
+rem  URL contains % encoding - must pass via file, not batch var, to avoid expansion
+echo.
+echo   [3] Download via S3 ^(externalLink^)
+echo   Host: exchange2-asset-manager-kprod.s3.amazonaws.com
+if not exist "!EXCHS3FILE!" (
+    echo   Result : [SKIP] no externalLink in asset
+    goto :eof
+)
+del /q "!EXCHZIP!" 2>nul
+set "S3RESULT="
+for /f "usebackq delims=" %%R in (`powershell -NoProfile -Command "try { $url=[IO.File]::ReadAllText('!EXCHS3FILE!').Trim(); if(-not $url){'SKIP';exit}; $wc=New-Object Net.WebClient; if('!PROXY!'){$wc.Proxy=New-Object Net.WebProxy('!PROXY!')}; $wc.DownloadFile($url,'!EXCHZIP!'); $sz=(Get-Item '!EXCHZIP!' -EA SilentlyContinue).Length; if($sz -gt 0){'OK '+$sz}else{'NG EMPTY'} } catch {'NG: '+$_.Exception.InnerException.Message}"`) do set "S3RESULT=%%R"
+del /q "!EXCHS3FILE!" 2>nul
+if "!S3RESULT!"=="SKIP" ( echo   Result : [SKIP] no externalLink & goto :eof )
+echo !S3RESULT! | findstr /b /c:"OK " >nul
+if errorlevel 1 (
+    set /a NGCOUNT+=1
+    echo   Download : !S3RESULT!
+    del /q "!EXCHZIP!" 2>nul
+    goto :eof
+)
+call "!COMMON!" :zip_magic "!EXCHZIP!"
+if not "!MAGIC!"=="PK" (
+    set /a NGCOUNT+=1
+    echo   Content  : NG  - not a ZIP archive
+    del /q "!EXCHZIP!" 2>nul
+    goto :eof
+)
+for /f "tokens=2" %%s in ("!S3RESULT!") do set "S3SZ=%%s"
+echo   Download : OK  ^(!S3SZ! bytes^)
+echo   Content  : OK  ^(valid ZIP^)
+del /q "!EXCHZIP!" 2>nul
 goto :eof
 
