@@ -860,7 +860,7 @@ if not exist "!EXCHS3FILE!" (
 )
 del /q "!EXCHZIP!" 2>nul
 set "S3RESULT="
-for /f "usebackq delims=" %%R in (`powershell -NoProfile -Command "try { $url=[IO.File]::ReadAllText('!EXCHS3FILE!').Trim(); if(-not $url){'SKIP';exit}; $wc=New-Object Net.WebClient; if('!PROXY!'){$wc.Proxy=New-Object Net.WebProxy('!PROXY!')}; $wc.DownloadFile($url,'!EXCHZIP!'); $sz=(Get-Item '!EXCHZIP!' -EA SilentlyContinue).Length; if($sz -gt 0){'OK '+$sz}else{'NG EMPTY'} } catch {'NG: '+$_.Exception.InnerException.Message}"`) do set "S3RESULT=%%R"
+for /f "usebackq delims=" %%R in (`powershell -NoProfile -Command "try { $url=[IO.File]::ReadAllText('!EXCHS3FILE!').Trim(); if(-not $url){'SKIP';exit}; $wc=New-Object Net.WebClient; if('!PROXY!'){$wc.Proxy=New-Object Net.WebProxy('!PROXY!')}; $wc.DownloadFile($url,'!EXCHZIP!'); $sz=(Get-Item '!EXCHZIP!' -EA SilentlyContinue).Length; if($sz -gt 0){'OK '+$sz}else{'NG EMPTY'} } catch {'NG: '+(if($_.Exception.InnerException){$_.Exception.InnerException.Message}else{$_.Exception.Message})}"`) do set "S3RESULT=%%R"
 del /q "!EXCHS3FILE!" 2>nul
 if "!S3RESULT!"=="SKIP" ( echo   Result : [SKIP] no externalLink & goto :eof )
 echo !S3RESULT! | findstr /b /c:"OK " >nul
