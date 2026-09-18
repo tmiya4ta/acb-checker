@@ -768,21 +768,27 @@ if not defined EXCHVER (
 )
 echo   Version: !EXCHVER!
 
-rem Get download URL for RAML file
+rem Get download URL for API spec (OAS or RAML)
 set "EXCHDL="
+set "EXCHCLS="
 set "EXCHS3FILE=%TEMP%\mv_s3url.txt"
 del /q "!EXCHS3FILE!" 2>nul
-for /f "usebackq delims=" %%U in (`powershell -NoProfile -Command "$j=Get-Content '!EXCHF!' -Raw | ConvertFrom-Json; ($j.files | Where-Object { $_.classifier -match 'raml' } | Select-Object -First 1).downloadURL"`) do set "EXCHDL=%%U"
-powershell -NoProfile -Command "$j=Get-Content '!EXCHF!' -Raw | ConvertFrom-Json; $u=($j.files | Where-Object { $_.classifier -match 'raml' -and $_.packaging -eq 'zip' } | Select-Object -First 1).externalLink; if($u){[IO.File]::WriteAllText('!EXCHS3FILE!',$u)}" 2>nul
+rem Try OAS first, then RAML
+for /f "usebackq tokens=1,* delims=|" %%A in (`powershell -NoProfile -Command "$j=Get-Content '!EXCHF!' -Raw | ConvertFrom-Json; $f=$j.files | Where-Object { $_.classifier -match 'oas' -and $_.packaging -eq 'zip' } | Select-Object -First 1; if(-not $f){$f=$j.files | Where-Object { $_.classifier -match 'raml' -and $_.packaging -eq 'zip' } | Select-Object -First 1}; if($f){$f.classifier+'|'+$f.downloadURL}"`) do (
+    set "EXCHCLS=%%A"
+    set "EXCHDL=%%B"
+)
+powershell -NoProfile -Command "$j=Get-Content '!EXCHF!' -Raw | ConvertFrom-Json; $f=$j.files | Where-Object { $_.classifier -match 'oas' -and $_.packaging -eq 'zip' } | Select-Object -First 1; if(-not $f){$f=$j.files | Where-Object { $_.classifier -match 'raml' -and $_.packaging -eq 'zip' } | Select-Object -First 1}; if($f -and $f.externalLink){[IO.File]::WriteAllText('!EXCHS3FILE!',$f.externalLink)}" 2>nul
 del /q "!EXCHF!" 2>nul
 if not defined EXCHDL (
     set /a NGCOUNT+=1
-    echo   Result : NG  - no RAML file found in asset
+    echo   Result : NG  - no API spec file ^(OAS/RAML^) found in asset
     goto :eof
 )
+echo   Classifier: !EXCHCLS!
 
 rem Step 2: Try to download via Maven API (same auth as test 3/4)
-set "EXCHMVN=https://maven.anypoint.mulesoft.com/api/v3/maven/!EXCHG!/!EXCHA!/!EXCHVER!/!EXCHA!-!EXCHVER!-raml.zip"
+set "EXCHMVN=https://maven.anypoint.mulesoft.com/api/v3/maven/!EXCHG!/!EXCHA!/!EXCHVER!/!EXCHA!-!EXCHVER!-!EXCHCLS!.zip"
 set "EXCHZIP=%TEMP%\mv_spec.zip"
 echo.
 echo   [2] Download via Maven API (Basic auth)
