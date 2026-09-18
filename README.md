@@ -343,7 +343,7 @@ ACB-Trace.cmd --status              現在の trace 設定値を表示
 ACB-Trace.cmd --collect             ログを logs\ に収集
 ACB-Trace.cmd --collect --mask      ログを収集（トークンをマスク）
 ACB-Trace.cmd --disable --collect --mask  ログ収集してから無効化（推奨）
-ACB-Trace.cmd --acb "C:\Users\<user>\***\AnypointCodeBuilder"  ACBホームを直接指定
+ACB-Trace.cmd --acb "C:\path\to\AnypointCodeBuilder"  ACBホームを直接指定
 ```
 
 ### 推奨手順
