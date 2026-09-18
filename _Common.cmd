@@ -160,10 +160,27 @@ rem
 rem  Honours a VSCODE_SETTINGS already set from --vscode (a
 rem  directory is completed with User\settings.json), otherwise
 rem  looks in the usual VS Code locations.
+rem
+rem  A --vscode value that resolves to neither a settings.json
+rem  file nor a folder containing User\settings.json is invalid
+rem  (e.g. someone passed the VS Code *install* folder). Warn and
+rem  fall back to auto-detection instead of silently trying to
+rem  read that path as JSON later.
 rem ============================================================
 :find_vscode
 if defined VSCODE_SETTINGS (
-    if exist "!VSCODE_SETTINGS!\User\settings.json" set "VSCODE_SETTINGS=!VSCODE_SETTINGS!\User\settings.json"
+    if exist "!VSCODE_SETTINGS!\User\settings.json" (
+        set "VSCODE_SETTINGS=!VSCODE_SETTINGS!\User\settings.json"
+    ) else if not exist "!VSCODE_SETTINGS!" (
+        echo   [WARN] --vscode で指定されたパスが見つかりません: !VSCODE_SETTINGS!
+        echo          自動検出にフォールバックします。
+        set "VSCODE_SETTINGS="
+    ) else if exist "!VSCODE_SETTINGS!\" (
+        echo   [WARN] --vscode で指定されたフォルダに User\settings.json がありません: !VSCODE_SETTINGS!
+        echo          ^(VS Code のインストール先ではなく、settings.json のあるフォルダを指定してください^)
+        echo          自動検出にフォールバックします。
+        set "VSCODE_SETTINGS="
+    )
 )
 if not defined VSCODE_SETTINGS (
     if exist "%APPDATA%\Code\User\settings.json" set "VSCODE_SETTINGS=%APPDATA%\Code\User\settings.json"
@@ -171,6 +188,21 @@ if not defined VSCODE_SETTINGS (
 if not defined VSCODE_SETTINGS (
     if exist "%APPDATA%\Code - Insiders\User\settings.json" set "VSCODE_SETTINGS=%APPDATA%\Code - Insiders\User\settings.json"
 )
+exit /b 0
+
+
+rem ============================================================
+rem  :mask_userpath <value>   ->  PATH_DISP
+rem
+rem  On many Japanese Windows setups the account's real display
+rem  name is the folder name under C:\Users, e.g.
+rem  C:\Users\<real name>\AnypointCodeBuilder. Any path under
+rem  %USERPROFILE% or %APPDATA% that gets echoed to the console
+rem  or written to logs\ must have that segment masked first.
+rem ============================================================
+:mask_userpath
+set "PATH_DISP=%~1"
+if defined USERPROFILE call set "PATH_DISP=%%PATH_DISP:%USERPROFILE%=C:\Users\***%%"
 exit /b 0
 
 

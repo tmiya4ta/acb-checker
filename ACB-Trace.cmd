@@ -91,7 +91,8 @@ rem ============================================================
 echo.
 echo ============================================================
 echo  [trace 有効化]  settings.json に trace 設定を追加します
-echo  対象: !VSCODE_SETTINGS!
+call "!COMMON!" :mask_userpath "!VSCODE_SETTINGS!"
+echo  対象: !PATH_DISP!
 echo ============================================================
 powershell -NoProfile -Command "$f='!VSCODE_SETTINGS!'; $s=Get-Content $f -Raw | ConvertFrom-Json; $s | Add-Member -NotePropertyName 'mule.logging.level' -NotePropertyValue 'trace' -Force; $s | Add-Member -NotePropertyName 'mule.lsp.trace.server' -NotePropertyValue 'verbose' -Force; $s | Add-Member -NotePropertyName 'mule.application.logging.level' -NotePropertyValue 'trace' -Force; $s | ConvertTo-Json -Depth 10 | Set-Content $f -Encoding UTF8; Write-Host '  追加: mule.logging.level             = trace'; Write-Host '  追加: mule.lsp.trace.server          = verbose'; Write-Host '  追加: mule.application.logging.level = trace'"
 echo.
@@ -108,7 +109,8 @@ if defined DO_COLLECT goto :do_collect_then_disable
 echo.
 echo ============================================================
 echo  [trace 無効化]  settings.json から trace 設定を削除します
-echo  対象: !VSCODE_SETTINGS!
+call "!COMMON!" :mask_userpath "!VSCODE_SETTINGS!"
+echo  対象: !PATH_DISP!
 echo ============================================================
 powershell -NoProfile -Command "$f='!VSCODE_SETTINGS!'; $s=Get-Content $f -Raw | ConvertFrom-Json; @('mule.logging.level','mule.lsp.trace.server','mule.application.logging.level') | ForEach-Object { $s.PSObject.Properties.Remove($_) }; $s | ConvertTo-Json -Depth 10 | Set-Content $f -Encoding UTF8; Write-Host '  削除: mule.logging.level'; Write-Host '  削除: mule.lsp.trace.server'; Write-Host '  削除: mule.application.logging.level'"
 echo.
@@ -121,7 +123,8 @@ call :do_collect
 echo.
 echo ============================================================
 echo  [trace 無効化]  settings.json から trace 設定を削除します
-echo  対象: !VSCODE_SETTINGS!
+call "!COMMON!" :mask_userpath "!VSCODE_SETTINGS!"
+echo  対象: !PATH_DISP!
 echo ============================================================
 powershell -NoProfile -Command "$f='!VSCODE_SETTINGS!'; $s=Get-Content $f -Raw | ConvertFrom-Json; @('mule.logging.level','mule.lsp.trace.server','mule.application.logging.level') | ForEach-Object { $s.PSObject.Properties.Remove($_) }; $s | ConvertTo-Json -Depth 10 | Set-Content $f -Encoding UTF8; Write-Host '  削除: mule.logging.level'; Write-Host '  削除: mule.lsp.trace.server'; Write-Host '  削除: mule.application.logging.level'"
 echo.
@@ -133,7 +136,8 @@ rem ============================================================
 echo.
 echo ============================================================
 echo  [trace 設定状況]
-echo  対象: !VSCODE_SETTINGS!
+call "!COMMON!" :mask_userpath "!VSCODE_SETTINGS!"
+echo  対象: !PATH_DISP!
 echo ============================================================
 powershell -NoProfile -Command "$f='!VSCODE_SETTINGS!'; try{$s=Get-Content $f -Raw|ConvertFrom-Json}catch{Write-Host '[ERROR] JSON 解析失敗';exit 1}; foreach($k in @('mule.logging.level','mule.lsp.trace.server','mule.application.logging.level')){$v=$s.$k; if($null -ne $v){Write-Host('  '+$k+' = '+$v)}else{Write-Host('  '+$k+' = (未設定)')}}"
 if not defined DO_COLLECT exit /b 0
@@ -152,7 +156,8 @@ if not defined LOGDIR set "LOGDIR=%CD%\logs"
 if not exist "!LOGDIR!" mkdir "!LOGDIR!"
 set "DEST=!LOGDIR!\ACB-logs-!CDATE!_!CTIME!"
 mkdir "!DEST!" 2>nul
-echo   収集先: !DEST!
+call "!COMMON!" :mask_userpath "!DEST!"
+echo   収集先: !PATH_DISP!
 if defined DO_MASK (echo   モード  : トークンをマスク ^(--mask^)) else (echo   モード  : そのままコピー)
 echo.
 
@@ -175,11 +180,12 @@ if defined VSCODE_SETTINGS if exist "!VSCODE_SETTINGS!" (
     )
 )
 if defined ACB_HOME_OVERRIDE set "ACB_HOME=!ACB_HOME_OVERRIDE!"
-echo          Home: !ACB_HOME!
+call "!COMMON!" :mask_userpath "!ACB_HOME!"
+echo          Home: !PATH_DISP!
 
 if exist "!ACB_HOME!\logs\" (
     xcopy /E /I /Q "!ACB_HOME!\logs" "!DEST!\acb-home-logs\" >nul
-    echo          OK: !ACB_HOME!\logs
+    echo          OK: !PATH_DISP!\logs
 ) else (
     echo          SKIP: logs フォルダが見つかりません
 )
@@ -199,7 +205,8 @@ if not defined LATEST_SESSION (
     echo          SKIP: セッションフォルダが見つかりません
     goto :collect_done
 )
-echo          Session: !LATEST_SESSION!
+call "!COMMON!" :mask_userpath "!LATEST_SESSION!"
+echo          Session: !PATH_DISP!
 
 if defined DO_MASK (
     powershell -NoProfile -Command "$src='!LATEST_SESSION!'; $dst='!DEST!\vscode-exthost'; Get-ChildItem $src -Recurse -File -Filter '*.log' -ErrorAction SilentlyContinue | Where-Object { $_.FullName -match 'exthost' } | ForEach-Object { $rel=$_.FullName.Substring($src.Length+1); $t=Join-Path $dst $rel; $d=[System.IO.Path]::GetDirectoryName($t); if(-not(Test-Path $d)){New-Item -ItemType Directory -Force -Path $d|Out-Null}; $c=Get-Content $_.FullName -Raw -ErrorAction SilentlyContinue; if($c){$c=$c -replace '\x22token\x22:\x22[^\x22]+\x22','\x22token\x22:\x22***MASKED***\x22'; $c=$c -replace '\x22refreshToken\x22:\x22[^\x22]+\x22','\x22refreshToken\x22:\x22***MASKED***\x22'; $c|Set-Content $t -Encoding UTF8} }"
@@ -220,16 +227,18 @@ set "ZIPFILE=!DEST!.zip"
 powershell -NoProfile -Command "Compress-Archive -Path '!DEST!\*' -DestinationPath '!ZIPFILE!' -Force; Write-Host '         OK'"
 if exist "!ZIPFILE!" (
     rd /s /q "!DEST!" 2>nul
+    call "!COMMON!" :mask_userpath "!ZIPFILE!"
     echo.
     echo ============================================================
     echo   収集完了
-    echo   ZIP: !ZIPFILE!
+    echo   ZIP: !PATH_DISP!
     echo ============================================================
 ) else (
+    call "!COMMON!" :mask_userpath "!DEST!"
     echo.
     echo ============================================================
     echo   収集完了 ^(ZIP 失敗 - フォルダのまま保存^)
-    echo   フォルダ: !DEST!
+    echo   フォルダ: !PATH_DISP!
     echo ============================================================
 )
 if not defined DO_MASK (

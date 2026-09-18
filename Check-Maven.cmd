@@ -132,7 +132,10 @@ echo [*] Looking for ACB token in AnypointCodeBuilder\.tmp\ ...
 rem -- Check mule.homeDirectory in VS Code settings.json first --
 set "ACB_HOME=%USERPROFILE%\AnypointCodeBuilder"
 call "!COMMON!" :find_vscode
-if defined VSCODE_SETTINGS echo     VS Code settings: !VSCODE_SETTINGS!
+if defined VSCODE_SETTINGS (
+    call "!COMMON!" :mask_userpath "!VSCODE_SETTINGS!"
+    echo     VS Code settings: !PATH_DISP!
+)
 if exist "!VSCODE_SETTINGS!" (
     for /f "usebackq delims=" %%H in (`powershell -NoProfile -Command "try { $s=Get-Content '!VSCODE_SETTINGS!' -Raw | ConvertFrom-Json; if($s.'mule.homeDirectory'){$s.'mule.homeDirectory'} } catch {}"`) do (
         if not "%%H"=="" set "ACB_HOME=%%H"
@@ -140,7 +143,8 @@ if exist "!VSCODE_SETTINGS!" (
 )
 
 set "TMP_BASE=!ACB_HOME!\.tmp"
-echo     ACB home: !ACB_HOME!
+call "!COMMON!" :mask_userpath "!ACB_HOME!"
+echo     ACB home: !PATH_DISP!
 set "SETTINGS_FILE="
 
 for /d %%d in ("!TMP_BASE!\*") do (
@@ -159,7 +163,8 @@ if not defined SETTINGS_FILE (
     goto :find_gav
 )
 
-echo     Found: !SETTINGS_FILE!
+call "!COMMON!" :mask_userpath "!SETTINGS_FILE!"
+echo     Found: !PATH_DISP!
 
 rem Extract first <password>VALUE</password> from the file
 for /f "tokens=1,* delims=<" %%a in ('findstr /i "password" "!SETTINGS_FILE!"') do (

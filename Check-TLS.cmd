@@ -146,7 +146,8 @@ echo ============================================================
 echo   Windows cert store : Schannel ^(system trust store^)
 echo                        certlm.msc ^> Trusted Root Certification Authorities
 if defined JKS (
-    echo   Java cacerts       : !JKS!
+    call "!COMMON!" :mask_userpath "!JKS!"
+    echo   Java cacerts       : !PATH_DISP!
 ) else (
     echo   Java cacerts       : [not found - keytool not available]
 )
