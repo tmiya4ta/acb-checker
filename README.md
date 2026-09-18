@@ -283,11 +283,16 @@ Check-TLS.cmd --proxy http://proxy.example.com:8080 https://repository.mulesoft.
 Check-TLS.cmd --help
 ```
 
-URL を指定しない場合、以下をデフォルトでチェックする:
+URL を指定しない場合、[ACB プロキシ設定ドキュメント](https://docs.mulesoft.com/anypoint-code-builder/ref-proxy-settings) の allowlist に記載された全ホストをチェックする:
+
 - `https://www.google.com`（一般的な接続確認）
-- `https://repository.mulesoft.org/releases/`（POM/JAR ダウンロード元・公開リポジトリ）
-- `https://maven.anypoint.mulesoft.com/api/v3/maven/`（POM/JAR ダウンロード元・Exchange 経由）
+- `https://repository.mulesoft.org/releases/`（POM/JAR ダウンロード・公開リポジトリ）
+- `https://maven.anypoint.mulesoft.com/api/v3/maven/`（POM/JAR ダウンロード・Exchange 経由）
 - `https://anypoint.mulesoft.com/`（Exchange API・組織情報取得）
+- `https://exchange2-asset-manager-kprod.s3.amazonaws.com/`（Exchange アセット S3 直接ダウンロード）
+- `https://repo.maven.apache.org/maven2/`（Maven Central）
+- `https://repo1.maven.org/maven2/`（Maven Central ミラー）
+- `https://download.eclipse.org/eclipse/updates/`（Eclipse 拡張アップデート）
 
 `--proxy` の挙動は Check-Maven.cmd と同じ（`--proxy` > 環境変数 > 直接接続）。
 `--proxy system` を指定したときだけ Windows の system proxy 設定を検索して使う。

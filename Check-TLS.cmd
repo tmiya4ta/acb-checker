@@ -5,9 +5,11 @@ rem
 rem  Usage: Check-TLS.cmd [--vscode <PATH>] [--proxy <URL|system>]
 rem                       [--show-proxy] [--help] [https://example.com ...]
 rem
-rem  Without URL args, checks google.com plus the Maven/Exchange hosts
-rem  used by Check-Maven.cmd for POM/JAR/ZIP downloads:
+rem  Without URL args, checks all hosts listed in the ACB proxy settings doc
+rem  (docs.mulesoft.com/anypoint-code-builder/ref-proxy-settings):
 rem    repository.mulesoft.org, maven.anypoint.mulesoft.com, anypoint.mulesoft.com
+rem    exchange2-asset-manager-kprod.s3.amazonaws.com
+rem    repo.maven.apache.org, repo1.maven.org, download.eclipse.org
 rem
 rem  Requirements:
 rem    _Common.cmd - shared routines, must sit next to this script
@@ -150,10 +152,18 @@ if defined JKS (
 echo ============================================================
 
 if !URLN!==0 (
+    rem general connectivity
     call :add_url "https://www.google.com"
+    rem MuleSoft Maven / Exchange  (ref-proxy-settings allowlist)
     call :add_url "https://repository.mulesoft.org/releases/"
     call :add_url "https://maven.anypoint.mulesoft.com/api/v3/maven/"
     call :add_url "https://anypoint.mulesoft.com/"
+    call :add_url "https://exchange2-asset-manager-kprod.s3.amazonaws.com/"
+    rem Maven Central  (ref-proxy-settings allowlist)
+    call :add_url "https://repo.maven.apache.org/maven2/"
+    call :add_url "https://repo1.maven.org/maven2/"
+    rem Eclipse updates  (ref-proxy-settings allowlist)
+    call :add_url "https://download.eclipse.org/eclipse/updates/"
 )
 
 rem The CALL below expands %%URL_%%i%% twice, which is what turns
