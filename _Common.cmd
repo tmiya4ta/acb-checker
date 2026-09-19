@@ -1,1 +1,219 @@
-﻿@echo off\nrem ============================================================\nrem  _Common.cmd - routines shared by Check-Maven.cmd / Check-TLS.cmd\nrem\nrem  Usage:  call "%~dp0_Common.cmd" :<routine> [args...]\nrem\nrem  There is deliberately no setlocal in this file: the variables\nrem  these routines set (PROXY, PROXY_OPT, PROXY_DISP, VSCODE_SETTINGS,\nrem  MAGIC, ...) have to stay visible to the caller.\nrem  The caller must run with delayed expansion enabled.\nrem ============================================================\n\nrem -- Probe for delayed expansion; without it nothing below works --\nset "_DE_A=probe"\nset "_DE_B=!_DE_A!"\nif not "%_DE_B%"=="probe" (\n    echo [ERROR] _Common.cmd requires the caller to run with\n    echo         setlocal enabledelayedexpansion.\n    exit /b 2\n)\nset "_DE_A=" & set "_DE_B="\n\nif "%~1"=="" (\n    echo [ERROR] _Common.cmd is a library - call it with a routine name.\n    exit /b 2\n)\nset "_ROUTINE=%~1"\nshift\ngoto %_ROUTINE%\n\n\nrem ============================================================\nrem  :mask_proxy <value>   ->  PROXY_DISP\nrem\nrem  Replaces credentials embedded in a proxy URL with ***.\nrem  The value is echoed to the console and into logs\, so a\nrem  user:pass@host must never appear there verbatim.\nrem ============================================================\n:mask_proxy\nset "PROXY_DISP=%~1"\nrem Everything below reads !PROXY_DISP! rather than %~1: delayed\nrem expansion is not re-parsed, so & or | in the value stay literal.\necho(!PROXY_DISP!| findstr /c:"@" >nul || exit /b 0\nfor /f "tokens=1,* delims=@" %%x in ("!PROXY_DISP!") do (\n    set "MP_CRED=%%x"\n    set "MP_HOST=%%y"\n)\nset "PROXY_DISP=***@!MP_HOST!"\nfor /f "tokens=1,* delims=/" %%s in ("!MP_CRED!") do (\n    if not "%%t"=="" set "PROXY_DISP=%%s//***@!MP_HOST!"\n)\nexit /b 0\n\n\nrem ============================================================\nrem  :show_proxy   - dump every place Windows keeps a proxy setting\nrem ============================================================\n:show_proxy\necho.\necho ============================================================\necho  Windows proxy settings\necho ============================================================\npowershell -NoProfile -Command "$t=@(@('HKCU       ','HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings'),@('HKLM       ','HKLM:\Software\Microsoft\Windows\CurrentVersion\Internet Settings'),@('HKLM policy','HKLM:\Software\Policies\Microsoft\Windows\CurrentVersion\Internet Settings')); foreach ($e in $t) { $k = Get-ItemProperty $e[1] -ErrorAction SilentlyContinue; if (-not $k) { Write-Host ('  ' + $e[0] + ' : (key does not exist)'); continue }; Write-Host ('  ' + $e[0] + ' : ProxyEnable   : ' + $(if($k.ProxyEnable -eq 1){'1 (enabled)'}else{'0 (disabled)'})); Write-Host ('                ProxyServer   : ' + $(if($k.ProxyServer){$k.ProxyServer}else{'(not set)'})); Write-Host ('                ProxyOverride : ' + $(if($k.ProxyOverride){$k.ProxyOverride}else{'(not set)'})); Write-Host ('                AutoConfigURL : ' + $(if($k.AutoConfigURL){$k.AutoConfigURL + '  (PAC - not resolved by this tool)'}else{'(not set)'})) }"\necho.\necho   WinHTTP ^(used by services and some JVMs; independent of the above^):\nnetsh winhttp show proxy\necho.\necho   Environment variables:\nif defined HTTPS_PROXY (\n    call :mask_proxy "!HTTPS_PROXY!"\n    echo     HTTPS_PROXY : !PROXY_DISP!\n) else (echo     HTTPS_PROXY : ^(not set^))\nif defined https_proxy (\n    call :mask_proxy "!https_proxy!"\n    echo     https_proxy : !PROXY_DISP!\n) else (echo     https_proxy : ^(not set^))\nif defined HTTP_PROXY (\n    call :mask_proxy "!HTTP_PROXY!"\n    echo     HTTP_PROXY  : !PROXY_DISP!\n) else (echo     HTTP_PROXY  : ^(not set^))\nif defined http_proxy (\n    call :mask_proxy "!http_proxy!"\n    echo     http_proxy  : !PROXY_DISP!\n) else (echo     http_proxy  : ^(not set^))\necho ============================================================\nexit /b 0\n\n\nrem ============================================================\nrem  :resolve_proxy <script-name>\nrem\nrem  Priority: --proxy > env vars > (only with --proxy system) the\nrem  Windows system proxy > none.  Reads PROXY (may hold "system")\nrem  and sets PROXY / PROXY_SRC / PROXY_OPT / PROXY_BYPASS / WINPAC.\nrem ============================================================\n:resolve_proxy\nset "SCRIPTNAME=%~1"\nset "PROXY_SRC="\nset "PROXY_BYPASS="\nset "PROXY_FORCE_WIN="\nset "WINPROXY="\nset "WINPAC="\nset "WINFROM="\n\nif /i "!PROXY!"=="system" set "PROXY=" & set "PROXY_FORCE_WIN=1"\nif defined PROXY set "PROXY_SRC=--proxy"\n\nif not defined PROXY if not defined PROXY_FORCE_WIN if defined HTTPS_PROXY set "PROXY=!HTTPS_PROXY!"&set "PROXY_SRC=HTTPS_PROXY env"\nif not defined PROXY if not defined PROXY_FORCE_WIN if defined https_proxy set "PROXY=!https_proxy!"&set "PROXY_SRC=https_proxy env"\nif not defined PROXY if not defined PROXY_FORCE_WIN if defined HTTP_PROXY set "PROXY=!HTTP_PROXY!"&set "PROXY_SRC=HTTP_PROXY env"\nif not defined PROXY if not defined PROXY_FORCE_WIN if defined http_proxy set "PROXY=!http_proxy!"&set "PROXY_SRC=http_proxy env"\n\nrem -- Windows system proxy: HKCU, then HKLM, then the HKLM policy key --\nif not defined PROXY if defined PROXY_FORCE_WIN (\n    for /f "usebackq tokens=1,* delims==" %%a in (`powershell -NoProfile -Command "$t=@(@('HKCU','HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings'),@('HKLM','HKLM:\Software\Microsoft\Windows\CurrentVersion\Internet Settings'),@('HKLM policy','HKLM:\Software\Policies\Microsoft\Windows\CurrentVersion\Internet Settings')); $proxy=$null; $from=$null; $bypass=$null; $pac=$null; foreach ($e in $t) { $k = Get-ItemProperty $e[1] -ErrorAction SilentlyContinue; if (-not $k) { continue }; if (-not $pac -and $k.AutoConfigURL) { $pac = $k.AutoConfigURL }; if ($proxy) { continue }; if ($k.ProxyEnable -eq 1 -and $k.ProxyServer) { $raw = $k.ProxyServer; $m = @{}; $raw -split ';' | ForEach-Object { $q = $_ -split '=',2; if ($q.Count -eq 2) { $m[$q[0]] = $q[1] } }; $p = $null; if ($m.ContainsKey('https')) { $p = $m['https'] } elseif ($m.ContainsKey('http')) { $p = $m['http'] } elseif ($raw -notmatch '=') { $p = $raw }; if ($p) { $proxy = $p; $from = $e[0]; $bypass = $k.ProxyOverride } } }; if ($proxy) { Write-Output ('proxy=' + $proxy); Write-Output ('from=' + $from); if ($bypass) { Write-Output ('bypass=' + $bypass) } }; if ($pac) { Write-Output ('pac=' + $pac) }"`) do (\n        if /i "%%a"=="proxy"  set "WINPROXY=%%b"\n        if /i "%%a"=="from"   set "WINFROM=%%b"\n        if /i "%%a"=="bypass" set "PROXY_BYPASS=%%b"\n        if /i "%%a"=="pac"    set "WINPAC=%%b"\n    )\n    if defined WINPROXY set "PROXY=!WINPROXY!"&set "PROXY_SRC=Windows system proxy - !WINFROM!"\n)\n\necho.\necho ============================================================\necho  Proxy configuration\necho ============================================================\ncall :mask_proxy "!PROXY!"\nif defined PROXY (\n    echo   Using  : !PROXY_DISP!  ^(!PROXY_SRC!^)\n    if defined PROXY_BYPASS (\n        echo   Bypass : !PROXY_BYPASS!\n        echo            Windows bypass list - NOT applied here: curl sends\n        echo            every URL through the proxy.\n    )\n    goto :resolve_proxy_done\n)\nif defined WINPAC (\n    echo   Using  : none  - Windows uses a PAC script ^(!WINPAC!^)\n    echo            PAC scripts cannot be resolved automatically.\n    echo            Find the actual proxy host:port and pass it via --proxy.\n) else if defined PROXY_FORCE_WIN (\n    echo   Using  : none  - no manual proxy configured in Windows\n) else (\n    echo   Using  : none  ^(direct connection - no proxy^)\n)\necho   If your network requires a proxy, retry with:\necho     !SCRIPTNAME! --proxy http://proxy.example.com:8080\necho     !SCRIPTNAME! --proxy system    ^(look up and use the Windows system proxy^)\n\n:resolve_proxy_done\nset "PROXY_OPT="\nif defined PROXY set "PROXY_OPT=-x !PROXY!"\nexit /b 0\n\n\nrem ============================================================\nrem  :find_vscode   ->  VSCODE_SETTINGS\nrem\nrem  Honours a VSCODE_SETTINGS already set from --vscode (a\nrem  directory is completed with User\settings.json), otherwise\nrem  looks in the usual VS Code locations.\nrem\nrem  A --vscode value that resolves to neither a settings.json\nrem  file nor a folder containing User\settings.json is invalid\nrem  (e.g. someone passed the VS Code *install* folder). Warn and\nrem  fall back to auto-detection instead of silently trying to\nrem  read that path as JSON later.\nrem ============================================================\n:find_vscode\nif defined VSCODE_SETTINGS (\n    if exist "!VSCODE_SETTINGS!\User\settings.json" (\n        set "VSCODE_SETTINGS=!VSCODE_SETTINGS!\User\settings.json"\n    ) else if not exist "!VSCODE_SETTINGS!" (\n        echo   [WARN] --vscode で指定されたパスが見つかりません: !VSCODE_SETTINGS!\n        echo          自動検出にフォールバックします。\n        set "VSCODE_SETTINGS="\n    ) else if exist "!VSCODE_SETTINGS!\" (\n        echo   [WARN] --vscode で指定されたフォルダに User\settings.json がありません: !VSCODE_SETTINGS!\n        echo          ^(VS Code のインストール先ではなく、settings.json のあるフォルダを指定してください^)\n        echo          自動検出にフォールバックします。\n        set "VSCODE_SETTINGS="\n    )\n)\nif not defined VSCODE_SETTINGS (\n    if exist "%APPDATA%\Code\User\settings.json" set "VSCODE_SETTINGS=%APPDATA%\Code\User\settings.json"\n)\nif not defined VSCODE_SETTINGS (\n    if exist "%APPDATA%\Code - Insiders\User\settings.json" set "VSCODE_SETTINGS=%APPDATA%\Code - Insiders\User\settings.json"\n)\nexit /b 0\n\n\nrem ============================================================\nrem  :mask_userpath <value>   ->  PATH_DISP\nrem\nrem  On many Japanese Windows setups the account's real display\nrem  name is the folder name under C:\Users, e.g.\nrem  C:\Users\<real name>\AnypointCodeBuilder. Any path under\nrem  %USERPROFILE% or %APPDATA% that gets echoed to the console\nrem  or written to logs\ must have that segment masked first.\nrem ============================================================\n:mask_userpath\nset "PATH_DISP=%~1"\nif defined USERPROFILE call set "PATH_DISP=%%PATH_DISP:%USERPROFILE%=C:\Users\***%%"\nexit /b 0\n\n\nrem ============================================================\nrem  :zip_magic <file>   ->  MAGIC\nrem\nrem  First two bytes of the file as text ("PK" for a jar/zip).\nrem  set /p cannot be used: it stops at NUL/EOF bytes, and\nrem  findstr /b matches any line start, not just the first byte.\nrem ============================================================\n:zip_magic\nset "MAGIC="\nfor /f "usebackq delims=" %%M in (`powershell -NoProfile -Command "$f=[System.IO.File]::OpenRead('%~1'); $b=New-Object byte[] 2; $n=$f.Read($b,0,2); $f.Close(); if($n -eq 2){[char]$b[0]+[char]$b[1]}"`) do set "MAGIC=%%M"\nexit /b 0\n
+@echo off
+rem ============================================================
+rem  _Common.cmd - routines shared by Check-Maven.cmd / Check-TLS.cmd
+rem
+rem  Usage:  call "%~dp0_Common.cmd" :<routine> [args...]
+rem
+rem  There is deliberately no setlocal in this file: the variables
+rem  these routines set (PROXY, PROXY_OPT, PROXY_DISP, VSCODE_SETTINGS,
+rem  MAGIC, ...) have to stay visible to the caller.
+rem  The caller must run with delayed expansion enabled.
+rem ============================================================
+
+rem -- Probe for delayed expansion; without it nothing below works --
+set "_DE_A=probe"
+set "_DE_B=!_DE_A!"
+if not "%_DE_B%"=="probe" (
+    echo [ERROR] _Common.cmd requires the caller to run with
+    echo         setlocal enabledelayedexpansion.
+    exit /b 2
+)
+set "_DE_A=" & set "_DE_B="
+
+if "%~1"=="" (
+    echo [ERROR] _Common.cmd is a library - call it with a routine name.
+    exit /b 2
+)
+set "_ROUTINE=%~1"
+shift
+goto %_ROUTINE%
+
+
+rem ============================================================
+rem  :mask_proxy <value>   ->  PROXY_DISP
+rem
+rem  Replaces credentials embedded in a proxy URL with ***.
+rem  The value is echoed to the console and into logs\, so a
+rem  user:pass@host must never appear there verbatim.
+rem ============================================================
+:mask_proxy
+set "PROXY_DISP=%~1"
+rem Everything below reads !PROXY_DISP! rather than %~1: delayed
+rem expansion is not re-parsed, so & or | in the value stay literal.
+echo(!PROXY_DISP!| findstr /c:"@" >nul || exit /b 0
+for /f "tokens=1,* delims=@" %%x in ("!PROXY_DISP!") do (
+    set "MP_CRED=%%x"
+    set "MP_HOST=%%y"
+)
+set "PROXY_DISP=***@!MP_HOST!"
+for /f "tokens=1,* delims=/" %%s in ("!MP_CRED!") do (
+    if not "%%t"=="" set "PROXY_DISP=%%s//***@!MP_HOST!"
+)
+exit /b 0
+
+
+rem ============================================================
+rem  :show_proxy   - dump every place Windows keeps a proxy setting
+rem ============================================================
+:show_proxy
+echo.
+echo ============================================================
+echo  Windows proxy settings
+echo ============================================================
+powershell -NoProfile -Command "$t=@(@('HKCU       ','HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings'),@('HKLM       ','HKLM:\Software\Microsoft\Windows\CurrentVersion\Internet Settings'),@('HKLM policy','HKLM:\Software\Policies\Microsoft\Windows\CurrentVersion\Internet Settings')); foreach ($e in $t) { $k = Get-ItemProperty $e[1] -ErrorAction SilentlyContinue; if (-not $k) { Write-Host ('  ' + $e[0] + ' : (key does not exist)'); continue }; Write-Host ('  ' + $e[0] + ' : ProxyEnable   : ' + $(if($k.ProxyEnable -eq 1){'1 (enabled)'}else{'0 (disabled)'})); Write-Host ('                ProxyServer   : ' + $(if($k.ProxyServer){$k.ProxyServer}else{'(not set)'})); Write-Host ('                ProxyOverride : ' + $(if($k.ProxyOverride){$k.ProxyOverride}else{'(not set)'})); Write-Host ('                AutoConfigURL : ' + $(if($k.AutoConfigURL){$k.AutoConfigURL + '  (PAC - not resolved by this tool)'}else{'(not set)'})) }"
+echo.
+echo   WinHTTP ^(used by services and some JVMs; independent of the above^):
+netsh winhttp show proxy
+echo.
+echo   Environment variables:
+if defined HTTPS_PROXY (
+    call :mask_proxy "!HTTPS_PROXY!"
+    echo     HTTPS_PROXY : !PROXY_DISP!
+) else (echo     HTTPS_PROXY : ^(not set^))
+if defined https_proxy (
+    call :mask_proxy "!https_proxy!"
+    echo     https_proxy : !PROXY_DISP!
+) else (echo     https_proxy : ^(not set^))
+if defined HTTP_PROXY (
+    call :mask_proxy "!HTTP_PROXY!"
+    echo     HTTP_PROXY  : !PROXY_DISP!
+) else (echo     HTTP_PROXY  : ^(not set^))
+if defined http_proxy (
+    call :mask_proxy "!http_proxy!"
+    echo     http_proxy  : !PROXY_DISP!
+) else (echo     http_proxy  : ^(not set^))
+echo ============================================================
+exit /b 0
+
+
+rem ============================================================
+rem  :resolve_proxy <script-name>
+rem
+rem  Priority: --proxy > env vars > (only with --proxy system) the
+rem  Windows system proxy > none.  Reads PROXY (may hold "system")
+rem  and sets PROXY / PROXY_SRC / PROXY_OPT / PROXY_BYPASS / WINPAC.
+rem ============================================================
+:resolve_proxy
+set "SCRIPTNAME=%~1"
+set "PROXY_SRC="
+set "PROXY_BYPASS="
+set "PROXY_FORCE_WIN="
+set "WINPROXY="
+set "WINPAC="
+set "WINFROM="
+
+if /i "!PROXY!"=="system" set "PROXY=" & set "PROXY_FORCE_WIN=1"
+if defined PROXY set "PROXY_SRC=--proxy"
+
+if not defined PROXY if not defined PROXY_FORCE_WIN if defined HTTPS_PROXY set "PROXY=!HTTPS_PROXY!"&set "PROXY_SRC=HTTPS_PROXY env"
+if not defined PROXY if not defined PROXY_FORCE_WIN if defined https_proxy set "PROXY=!https_proxy!"&set "PROXY_SRC=https_proxy env"
+if not defined PROXY if not defined PROXY_FORCE_WIN if defined HTTP_PROXY set "PROXY=!HTTP_PROXY!"&set "PROXY_SRC=HTTP_PROXY env"
+if not defined PROXY if not defined PROXY_FORCE_WIN if defined http_proxy set "PROXY=!http_proxy!"&set "PROXY_SRC=http_proxy env"
+
+rem -- Windows system proxy: HKCU, then HKLM, then the HKLM policy key --
+if not defined PROXY if defined PROXY_FORCE_WIN (
+    for /f "usebackq tokens=1,* delims==" %%a in (`powershell -NoProfile -Command "$t=@(@('HKCU','HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings'),@('HKLM','HKLM:\Software\Microsoft\Windows\CurrentVersion\Internet Settings'),@('HKLM policy','HKLM:\Software\Policies\Microsoft\Windows\CurrentVersion\Internet Settings')); $proxy=$null; $from=$null; $bypass=$null; $pac=$null; foreach ($e in $t) { $k = Get-ItemProperty $e[1] -ErrorAction SilentlyContinue; if (-not $k) { continue }; if (-not $pac -and $k.AutoConfigURL) { $pac = $k.AutoConfigURL }; if ($proxy) { continue }; if ($k.ProxyEnable -eq 1 -and $k.ProxyServer) { $raw = $k.ProxyServer; $m = @{}; $raw -split ';' | ForEach-Object { $q = $_ -split '=',2; if ($q.Count -eq 2) { $m[$q[0]] = $q[1] } }; $p = $null; if ($m.ContainsKey('https')) { $p = $m['https'] } elseif ($m.ContainsKey('http')) { $p = $m['http'] } elseif ($raw -notmatch '=') { $p = $raw }; if ($p) { $proxy = $p; $from = $e[0]; $bypass = $k.ProxyOverride } } }; if ($proxy) { Write-Output ('proxy=' + $proxy); Write-Output ('from=' + $from); if ($bypass) { Write-Output ('bypass=' + $bypass) } }; if ($pac) { Write-Output ('pac=' + $pac) }"`) do (
+        if /i "%%a"=="proxy"  set "WINPROXY=%%b"
+        if /i "%%a"=="from"   set "WINFROM=%%b"
+        if /i "%%a"=="bypass" set "PROXY_BYPASS=%%b"
+        if /i "%%a"=="pac"    set "WINPAC=%%b"
+    )
+    if defined WINPROXY set "PROXY=!WINPROXY!"&set "PROXY_SRC=Windows system proxy - !WINFROM!"
+)
+
+echo.
+echo ============================================================
+echo  Proxy configuration
+echo ============================================================
+call :mask_proxy "!PROXY!"
+if defined PROXY (
+    echo   Using  : !PROXY_DISP!  ^(!PROXY_SRC!^)
+    if defined PROXY_BYPASS (
+        echo   Bypass : !PROXY_BYPASS!
+        echo            Windows bypass list - NOT applied here: curl sends
+        echo            every URL through the proxy.
+    )
+    goto :resolve_proxy_done
+)
+if defined WINPAC (
+    echo   Using  : none  - Windows uses a PAC script ^(!WINPAC!^)
+    echo            PAC scripts cannot be resolved automatically.
+    echo            Find the actual proxy host:port and pass it via --proxy.
+) else if defined PROXY_FORCE_WIN (
+    echo   Using  : none  - no manual proxy configured in Windows
+) else (
+    echo   Using  : none  ^(direct connection - no proxy^)
+)
+echo   If your network requires a proxy, retry with:
+echo     !SCRIPTNAME! --proxy http://proxy.example.com:8080
+echo     !SCRIPTNAME! --proxy system    ^(look up and use the Windows system proxy^)
+
+:resolve_proxy_done
+set "PROXY_OPT="
+if defined PROXY set "PROXY_OPT=-x !PROXY!"
+exit /b 0
+
+
+rem ============================================================
+rem  :find_vscode   ->  VSCODE_SETTINGS
+rem
+rem  Honours a VSCODE_SETTINGS already set from --vscode (a
+rem  directory is completed with User\settings.json), otherwise
+rem  looks in the usual VS Code locations.
+rem
+rem  A --vscode value that resolves to neither a settings.json
+rem  file nor a folder containing User\settings.json is invalid
+rem  (e.g. someone passed the VS Code *install* folder). Warn and
+rem  fall back to auto-detection instead of silently trying to
+rem  read that path as JSON later.
+rem ============================================================
+:find_vscode
+if defined VSCODE_SETTINGS (
+    if exist "!VSCODE_SETTINGS!\User\settings.json" (
+        set "VSCODE_SETTINGS=!VSCODE_SETTINGS!\User\settings.json"
+    ) else if not exist "!VSCODE_SETTINGS!" (
+        echo   [WARN] --vscode で指定されたパスが見つかりません: !VSCODE_SETTINGS!
+        echo          自動検出にフォールバックします。
+        set "VSCODE_SETTINGS="
+    ) else if exist "!VSCODE_SETTINGS!\" (
+        echo   [WARN] --vscode で指定されたフォルダに User\settings.json がありません: !VSCODE_SETTINGS!
+        echo          ^(VS Code のインストール先ではなく、settings.json のあるフォルダを指定してください^)
+        echo          自動検出にフォールバックします。
+        set "VSCODE_SETTINGS="
+    )
+)
+if not defined VSCODE_SETTINGS (
+    if exist "%APPDATA%\Code\User\settings.json" set "VSCODE_SETTINGS=%APPDATA%\Code\User\settings.json"
+)
+if not defined VSCODE_SETTINGS (
+    if exist "%APPDATA%\Code - Insiders\User\settings.json" set "VSCODE_SETTINGS=%APPDATA%\Code - Insiders\User\settings.json"
+)
+exit /b 0
+
+
+rem ============================================================
+rem  :mask_userpath <value>   ->  PATH_DISP
+rem
+rem  On many Japanese Windows setups the account's real display
+rem  name is the folder name under C:\Users, e.g.
+rem  C:\Users\<real name>\AnypointCodeBuilder. Any path under
+rem  %USERPROFILE% or %APPDATA% that gets echoed to the console
+rem  or written to logs\ must have that segment masked first.
+rem ============================================================
+:mask_userpath
+set "PATH_DISP=%~1"
+if defined USERPROFILE call set "PATH_DISP=%%PATH_DISP:%USERPROFILE%=C:\Users\***%%"
+exit /b 0
+
+
+rem ============================================================
+rem  :zip_magic <file>   ->  MAGIC
+rem
+rem  First two bytes of the file as text ("PK" for a jar/zip).
+rem  set /p cannot be used: it stops at NUL/EOF bytes, and
+rem  findstr /b matches any line start, not just the first byte.
+rem ============================================================
+:zip_magic
+set "MAGIC="
+for /f "usebackq delims=" %%M in (`powershell -NoProfile -Command "$f=[System.IO.File]::OpenRead('%~1'); $b=New-Object byte[] 2; $n=$f.Read($b,0,2); $f.Close(); if($n -eq 2){[char]$b[0]+[char]$b[1]}"`) do set "MAGIC=%%M"
+exit /b 0
